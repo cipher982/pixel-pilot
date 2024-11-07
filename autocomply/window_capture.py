@@ -76,21 +76,17 @@ class WindowCapture:
         bounds = window_info["kCGWindowBounds"]
         x, y, width, height = (int(bounds[key]) for key in ("X", "Y", "Width", "Height"))
 
-        # Create a bitmap context
-        context = CG.CGBitmapContextCreate(
-            None, width, height, 8, width * 4, CG.CGColorSpaceCreateDeviceRGB(), CG.kCGImageAlphaPremultipliedFirst
-        )
+        # Create a CGRect structure using a tuple of (x, y, width, height)
+        window_rect = CG.CGRectMake(x, y, width, height)
 
-        # Capture the window content
-        CG.CGWindowListCreateImage(
-            (x, y, x + width, y + height),
+        # Capture the window content using the CGRect
+        image_ref = CG.CGWindowListCreateImage(
+            window_rect,
             CG.kCGWindowListOptionIncludingWindow,
             window_info["kCGWindowNumber"],
             CG.kCGWindowImageDefault,
         )
 
-        # Create an image from the context
-        image_ref = CG.CGBitmapContextCreateImage(context)
         if not image_ref:
             return None
 
