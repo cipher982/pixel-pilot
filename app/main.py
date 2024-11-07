@@ -14,9 +14,15 @@ class ChromeAgent:
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
-        self.chrome_window = self.window_capture.get_chrome_window()
+        print("\nPlease select the Chrome window you want to control...")
+        self.chrome_window = self.window_capture.select_window_interactive()
+
         if not self.chrome_window:
-            print("Error: Chrome window not found")
+            print("Error: No window selected")
+            return False
+
+        if self.chrome_window.get("kCGWindowOwnerName") != "Google Chrome":
+            print("Error: Selected window is not Chrome")
             return False
 
         try:
