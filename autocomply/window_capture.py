@@ -8,6 +8,10 @@ import Quartz
 import Quartz.CoreGraphics as CG
 from PIL import Image
 
+from autocomply.logger import setup_logger
+
+logger = setup_logger(__name__)
+
 
 class WindowCapture:
     def __init__(self):
@@ -16,7 +20,7 @@ class WindowCapture:
     @staticmethod
     def select_window_interactive() -> Optional[Dict[str, Any]]:
         """Interactive window selector that highlights windows as you move the mouse."""
-        print("\nMove your mouse over the window you want to capture and press Enter...")
+        logger.info("Move your mouse over the window you want to capture and press Enter...")
 
         while True:
             # Get the current mouse location
@@ -43,30 +47,18 @@ class WindowCapture:
                         display = f"{owner}"
                         if title:
                             display += f" - {title}"
-                        print(f"\rHovering: {display}", end="", flush=True)
+                        logger.info(f"Hovering: {display}")
 
                         # Check if Enter is pressed
                         try:
                             if input() == "":
-                                print(f"\nSelected: {display}")
+                                logger.info(f"Selected: {display}")
                                 return window
                         except KeyboardInterrupt:
-                            print("\nCancelled")
+                            logger.info("Selection cancelled")
                             return None
 
             time.sleep(0.1)  # Small delay to prevent high CPU usage
-
-    def get_chrome_window(self) -> Optional[Dict[str, Any]]:
-        """Retrieve information about the Chrome window."""
-        return self.get_window_info(self.window_name)
-
-    def get_window_info(self, window_name: str) -> Optional[Dict[str, Any]]:
-        """Retrieve information about the specified window."""
-        window_list = CG.CGWindowListCopyWindowInfo(self.options, CG.kCGNullWindowID)
-        for window in window_list:
-            if window_name.lower() in window.get("kCGWindowName", "").lower():
-                return window
-        return None
 
     def capture_window(self, window_info: Dict[str, Any], output_path: Optional[str] = None) -> Optional[Image.Image]:
         """Capture the specified window and return as PIL Image or save to file if output_path provided."""
@@ -88,6 +80,7 @@ class WindowCapture:
         )
 
         if not image_ref:
+            logger.error("Failed to capture window image")
             return None
 
         image = Image.frombytes(
@@ -102,7 +95,7 @@ class WindowCapture:
 
         if output_path:
             image.save(output_path)
-            print(f"Window captured and saved to {output_path}")
+            logger.info(f"Window captured and saved to {output_path}")
 
         return image
 
@@ -110,9 +103,9 @@ class WindowCapture:
 if __name__ == "__main__":
     # Example usage
     capture = WindowCapture()
-    window_info = capture.get_chrome_window()
+    window_info = capture.select_window_interactive()
     if window_info:
         output_path = os.path.expanduser("~/Desktop/window_capture.png")
         capture.capture_window(window_info, output_path)
     else:
-        print("No Chrome window found.")
+        logger.error("No window selected")

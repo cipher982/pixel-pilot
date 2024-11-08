@@ -3,7 +3,10 @@ import time
 from autocomply.action_system import ActionSystem
 from autocomply.audio_capture import AudioCapture
 from autocomply.config import Config
+from autocomply.logger import setup_logger
 from autocomply.window_capture import WindowCapture
+
+logger = setup_logger(__name__)
 
 
 class ChromeAgent:
@@ -18,21 +21,21 @@ class ChromeAgent:
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
-        print("\nPlease select the Chrome window you want to control...")
+        logger.info("Please select the Chrome window you want to control...")
         self.chrome_window = self.window_capture.select_window_interactive()
 
         if not self.chrome_window:
-            print("Error: No window selected")
+            logger.error("No window selected")
             return False
 
         if self.chrome_window.get("kCGWindowOwnerName") != "Google Chrome":
-            print("Error: Selected window is not Chrome")
+            logger.error("Selected window is not Chrome")
             return False
 
         try:
             self.audio_capture.start_capture()
         except Exception as e:
-            print(f"Error starting audio capture: {e}")
+            logger.error(f"Error starting audio capture: {e}")
             return False
 
         return True
@@ -43,19 +46,24 @@ class ChromeAgent:
             return
 
         try:
+            logger.info("Agent started successfully, beginning main loop...")
             while True:
                 current_time = time.time()
 
                 # Capture screenshot if interval elapsed
                 screenshot = None
                 if current_time - self.last_screenshot_time >= Config.SCREENSHOT_INTERVAL:
+                    logger.debug("Capturing screenshot...")
                     screenshot = self.window_capture.capture_window(self.chrome_window)
                     self.last_screenshot_time = current_time
 
                 # Get transcription if interval elapsed
                 transcription = None
                 if current_time - self.last_audio_time >= Config.AUDIO_INTERVAL:
+                    logger.debug("Getting audio transcription...")
                     transcription = self.audio_capture.get_transcription()
+                    if transcription:
+                        logger.info(f"Transcribed: {transcription}")
                     self.last_audio_time = current_time
 
                 # Process action if we have new data and action interval elapsed
@@ -70,7 +78,7 @@ class ChromeAgent:
                 time.sleep(Config.MAIN_LOOP_INTERVAL)
 
         except KeyboardInterrupt:
-            print("\nStopping agent...")
+            logger.info("Stopping agent...")
         finally:
             self.cleanup()
 
