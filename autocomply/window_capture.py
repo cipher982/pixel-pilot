@@ -60,52 +60,24 @@ class WindowCapture:
 
             time.sleep(0.1)  # Small delay to prevent high CPU usage
 
-    def capture_window(self, window_info: Dict[str, Any], output_path: Optional[str] = None) -> Optional[Image.Image]:
-        """Capture the specified window and return as PIL Image or save to file if output_path provided."""
+    def capture_window(self, window_info: Dict[str, Any], output_path: str) -> Optional[Image.Image]:
+        """Capture the specified window using native screencapture tool."""
         if not window_info:
             return None
 
-        bounds = window_info["kCGWindowBounds"]
-        x, y, width, height = (int(bounds[key]) for key in ("X", "Y", "Width", "Height"))
+        window_id = window_info["kCGWindowNumber"]
 
-        # Create a CGRect structure using a tuple of (x, y, width, height)
-        window_rect = CG.CGRectMake(x, y, width, height)
+        os.system(f"screencapture -l {window_id} {output_path}")
 
-        # Capture the window content using the CGRect
-        image_ref = CG.CGWindowListCreateImage(
-            window_rect,
-            CG.kCGWindowListOptionIncludingWindow,
-            window_info["kCGWindowNumber"],
-            CG.kCGWindowImageDefault,
-        )
-
-        if not image_ref:
-            logger.error("Failed to capture window image")
-            return None
-
-        image = Image.frombytes(
-            "RGBA",
-            (width, height),
-            CG.CGDataProviderCopyData(CG.CGImageGetDataProvider(image_ref)),
-            "raw",
-            "BGRA",
-            0,
-            1,
-        )
-
-        if output_path:
-            image.save(output_path)
-            logger.info(f"Window captured and saved to {output_path}")
-
+        image = Image.open(output_path)
         return image
 
 
 if __name__ == "__main__":
-    # Example usage
     capture = WindowCapture()
     window_info = capture.select_window_interactive()
     if window_info:
-        output_path = os.path.expanduser("~/Desktop/window_capture.png")
+        output_path = os.path.expanduser("./scratch/window_capture.png")
         capture.capture_window(window_info, output_path)
     else:
         logger.error("No window selected")

@@ -1,3 +1,4 @@
+from typing import Any
 from typing import Optional
 from typing import Tuple
 
@@ -15,7 +16,7 @@ class ActionSystem:
         # Ensure PyAutoGUI fails safe
         pyautogui.FAILSAFE = True
 
-    def click_at_position(self, window: gw.Window, relative_pos: Tuple[int, int]) -> None:
+    def click_at_position(self, window: Any, relative_pos: Tuple[int, int]) -> None:
         """Click at a position relative to the window."""
         x = window.left + relative_pos[0]
         y = window.top + relative_pos[1]
