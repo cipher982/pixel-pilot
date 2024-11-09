@@ -5,6 +5,7 @@ description = "AI agent for completing your workplace training courses"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "click>=8.1.7",
     "inquirer>=3.4.0",
     "langgraph>=0.2.45",
     "mss>=9.0.2",

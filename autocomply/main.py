@@ -1,5 +1,7 @@
 import time
 
+import click
+
 from autocomply.action_system import ActionSystem
 from autocomply.audio_capture import AudioCapture
 from autocomply.config import Config
@@ -10,14 +12,15 @@ logger = setup_logger(__name__)
 
 
 class ChromeAgent:
-    def __init__(self):
+    def __init__(self, no_audio: bool = False):
         self.window_capture = WindowCapture()
-        self.audio_capture = AudioCapture()
+        self.audio_capture = None if no_audio else AudioCapture()
         self.action_system = ActionSystem()
         self.chrome_window = None
         self.last_audio_time = 0
         self.last_screenshot_time = 0
         self.last_action_time = 0
+        self.no_audio = no_audio
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -33,7 +36,8 @@ class ChromeAgent:
             return False
 
         try:
-            self.audio_capture.start_capture()
+            if not self.no_audio:
+                self.audio_capture.start_capture()
         except Exception as e:
             logger.error(f"Error starting audio capture: {e}")
             return False
@@ -87,6 +91,12 @@ class ChromeAgent:
         self.audio_capture.stop_capture()
 
 
-if __name__ == "__main__":
-    agent = ChromeAgent()
+@click.command()
+@click.option("--no-audio", is_flag=True, help="Disable audio capture")
+def main(no_audio: bool):
+    agent = ChromeAgent(no_audio=no_audio)
     agent.run()
+
+
+if __name__ == "__main__":
+    main()

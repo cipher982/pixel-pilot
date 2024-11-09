@@ -22,7 +22,7 @@ class State(TypedDict):
 
 class ActionSystem:
     def __init__(self):
-        self.llm = OpenAI(model="gpt-4o-mini")
+        self.llm = OpenAI()
         self.graph = self._build_graph()
         pyautogui.FAILSAFE = True
 
