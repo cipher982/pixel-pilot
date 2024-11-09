@@ -307,8 +307,6 @@ if __name__ == "__main__":
         while True:
             time.sleep(Config.MAIN_LOOP_INTERVAL)
             text = capture.get_transcription()
-            if text:
-                logger.info(f"Transcribed: {text}")
 
     except KeyboardInterrupt:
         logger.info("Stopping capture...")
