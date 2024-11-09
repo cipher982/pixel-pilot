@@ -22,41 +22,58 @@ class WindowCapture:
         """Interactive window selector that highlights windows as you move the mouse."""
         logger.info("Move your mouse over the window you want to capture and press Enter...")
 
+        last_window = None  # Track the last window to prevent duplicate logging
+
         while True:
-            # Get the current mouse location
-            mouse_loc = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+            try:
+                # Check if Enter is pressed (non-blocking)
+                import select
+                import sys
 
-            # Get the window under the mouse
-            window_list = Quartz.CGWindowListCopyWindowInfo(
-                Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
-                Quartz.kCGNullWindowID,
-            )
+                # Check if there's input ready (Enter pressed)
+                if select.select([sys.stdin], [], [], 0.1)[0]:  # 0.1s timeout
+                    if input() == "":
+                        if last_window:
+                            logger.info(f"Selected: {last_window.get('kCGWindowOwnerName', '')}")
+                            return last_window
+                        continue
 
-            for window in window_list:
-                bounds = window.get("kCGWindowBounds")
-                if bounds:
-                    x = bounds["X"]
-                    y = bounds["Y"]
-                    width = bounds["Width"]
-                    height = bounds["Height"]
+                # Get the current mouse location
+                mouse_loc = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
 
-                    # Check if mouse is inside this window
-                    if x <= mouse_loc.x <= x + width and y <= mouse_loc.y <= y + height:
-                        owner = window.get("kCGWindowOwnerName", "")
-                        title = window.get("kCGWindowName", "")
-                        display = f"{owner}"
-                        if title:
-                            display += f" - {title}"
-                        logger.info(f"Hovering: {display}")
+                window_list = Quartz.CGWindowListCopyWindowInfo(
+                    Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+                    Quartz.kCGNullWindowID,
+                )
 
-                        # Check if Enter is pressed
-                        try:
-                            if input() == "":
-                                logger.info(f"Selected: {display}")
-                                return window
-                        except KeyboardInterrupt:
-                            logger.info("Selection cancelled")
-                            return None
+                found_window = False
+                for window in window_list:
+                    bounds = window.get("kCGWindowBounds")
+                    if bounds:
+                        x = bounds["X"]
+                        y = bounds["Y"]
+                        width = bounds["Width"]
+                        height = bounds["Height"]
+
+                        if x <= mouse_loc.x <= x + width and y <= mouse_loc.y <= y + height:
+                            found_window = True
+                            if window != last_window:  # Only log if window changed
+                                owner = window.get("kCGWindowOwnerName", "")
+                                title = window.get("kCGWindowName", "")
+                                display = f"{owner}"
+                                if title:
+                                    display += f" - {title}"
+                                logger.info(f"Hovering: {display}")
+                                last_window = window
+                            break
+
+                if not found_window and last_window is not None:
+                    logger.info("No window under cursor")
+                    last_window = None
+
+            except KeyboardInterrupt:
+                logger.info("Selection cancelled")
+                return None
 
             time.sleep(0.1)  # Small delay to prevent high CPU usage
 
