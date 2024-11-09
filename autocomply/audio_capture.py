@@ -37,10 +37,20 @@ class AudioCapture:
 
         # Audio device setup
         self.devices = sd.query_devices()
-        self.device_id = self._find_device(device_name)
-        if self.device_id is None:
-            raise ValueError(f"Could not find {device_name}! Please ensure it's installed: brew install blackhole-2ch")
 
+        # Try system audio capture first (macOS 12+)
+        self.device_id = self._find_system_audio_device()
+        if self.device_id is None:
+            raise "need audio"
+            # Fall back to specified device
+            self.device_id = self._find_device(device_name)
+
+        if self.device_id is None:
+            raise ValueError(
+                "Could not find suitable audio capture device. "
+                "On macOS 12+, enable 'Audio Capture' in Security & Privacy settings. "
+                "Otherwise, install BlackHole: brew install blackhole-2ch"
+            )
         # Verify it's not a microphone device
         device_info = self.devices[self.device_id]
         logger.info(f"Selected audio device: {device_info['name']}")
@@ -71,6 +81,10 @@ class AudioCapture:
         self.last_transcription = 0
         self.audio_process_interval = Config.AUDIO_INTERVAL
 
+        # Add buffer for visualization data
+        self.current_chunk_viz = []
+        self.current_chunk_start = time.time()
+
     @staticmethod
     def list_available_devices() -> List[Dict]:
         """List all available audio input devices."""
@@ -88,6 +102,23 @@ class AudioCapture:
             )
         return devices
 
+    def _find_system_audio_device(self) -> Optional[int]:
+        """Find macOS system audio capture device."""
+        logger.info("Searching for system audio capture device...")
+        for i, device in enumerate(self.devices):
+            name = device["name"].lower()
+            max_input_channels = device["max_input_channels"]
+            logger.info(f"Device: {device['name']} (ID: {i}) has {max_input_channels} input channels")
+            logger.info(f"Device full info: {device}")
+
+            # Look for BlackHole with input capability
+            if max_input_channels > 0 and "blackhole" in name:
+                logger.info(f"Found BlackHole device: {device['name']} (ID: {i})")
+                return i
+
+        logger.warning("BlackHole audio capture device not found.")
+        return None
+
     def _find_device(self, device_name: str) -> Optional[int]:
         """Find device ID by name."""
         for i, device in enumerate(self.devices):
@@ -100,32 +131,52 @@ class AudioCapture:
         if status:
             logger.warning(f"Status: {status}")
 
-        # Only visualize at specified intervals
-        current_time = time.time()
-        if current_time - self.last_visualization >= self.visualization_interval:
-            # Create detailed waveform visualization
-            samples = np.abs(indata[:, 0])
-            samples = samples[:: len(samples) // 32]
+        # Generate visualization and store it
+        samples = np.abs(indata[:, 0])
+        samples = samples[:: len(samples) // 32]
+        peak = np.max(samples)
+        normalized = samples / max(peak, 0.01)
 
-            peak = np.max(samples)
-            normalized = samples / max(peak, 0.01)
-            chars = [self.blocks[int(n * (len(self.blocks) - 1))] for n in normalized]
-
-            colored_chars = []
-            for n, char in zip(normalized, chars):
-                if n > 0.8:
-                    color = "bright_red"
-                elif n > 0.5:
-                    color = "yellow"
-                else:
-                    color = "green"
-                colored_chars.append(f"[{color}]{char}[/]")
-
-            waveform = "".join(colored_chars)
-            self.console.print(f"♪ [{waveform}] {peak:.3f}")
-            self.last_visualization = current_time
+        viz_data = {"normalized": normalized, "peak": peak, "timestamp": time.time()}
+        self.current_chunk_viz.append(viz_data)
 
         self.audio_queue.put(np.copy(indata))
+
+    def _render_visualization(self, viz_data_list) -> None:
+        """Render a single compressed visualization for the entire chunk."""
+        if not viz_data_list:
+            return
+
+        # Combine all normalized data and downsample to ~32 points
+        all_samples = np.concatenate([vd["normalized"] for vd in viz_data_list])
+        chunk_size = len(all_samples) // 32
+        if chunk_size > 0:
+            # Use mean instead of max for more variation
+            compressed = [np.mean(all_samples[i : i + chunk_size]) for i in range(0, len(all_samples), chunk_size)]
+        else:
+            compressed = all_samples
+
+        # Normalize the compressed data
+        max_val = np.max(compressed)
+        min_val = np.min(compressed)
+        if max_val > min_val:
+            compressed = (compressed - min_val) / (max_val - min_val)
+
+        # Create single visualization
+        chars = [self.blocks[int(n * (len(self.blocks) - 1))] for n in compressed]
+        colored_chars = []
+        for n, char in zip(compressed, chars):
+            if n > 0.8:
+                color = "bright_red"
+            elif n > 0.5:
+                color = "yellow"
+            else:
+                color = "green"
+            colored_chars.append(f"[{color}]{char}[/]")
+
+        waveform = "".join(colored_chars)
+        peak = max(vd["peak"] for vd in viz_data_list)
+        self.console.print(f"♪ [{waveform}] {peak:.3f}")
 
     def start_capture(self) -> None:
         """Start capturing audio with Whisper-compatible settings."""
@@ -215,14 +266,20 @@ class AudioCapture:
                 f"Processing audio: shape={audio_data.shape}, duration={len(audio_data)/self.sample_rate:.1f}s"
             )
 
-            # Prepare audio file for Whisper
+            # Prepare and send to Whisper
             audio_file = self._prepare_audio_file(audio_data)
-
-            # Send to Whisper API
             response = self.client.audio.transcriptions.create(model="whisper-1", file=audio_file, language="en")
 
-            # Update last transcription time on success
-            self.last_transcription = current_time
+            # Print visualizations and transcription together
+            logger.info("=== Audio Chunk ===")
+            self._render_visualization(self.current_chunk_viz)
+            logger.info(f"Transcription: {response.text}")
+            logger.info("================")
+
+            # Reset visualization buffer
+            self.current_chunk_viz = []
+            self.current_chunk_start = time.time()
+            self.last_transcription = time.time()
 
             return response.text
 
