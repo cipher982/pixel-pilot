@@ -3,11 +3,19 @@
 <head>
     <title>Simple Quiz</title>
     <style>
+        body {
+            background-color: #000;
+            color: #fff;
+        }
+
         .question-container {
             max-width: 600px;
             margin: 50px auto;
             padding: 20px;
             display: none;
+            background-color: #111;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(255, 255, 255, 0.1);
         }
 
         .question-container.active {
@@ -23,19 +31,22 @@
 
         .option {
             padding: 15px;
-            border: 1px solid #ccc;
+            border: 1px solid #444;
             border-radius: 5px;
             cursor: pointer;
             text-align: center;
+            background-color: #222;
+            transition: background-color 0.2s ease;
         }
 
         .option:hover {
-            background-color: #f0f0f0;
+            background-color: #333;
         }
 
         .question-text {
             font-size: 20px;
             margin-bottom: 20px;
+            color: #fff;
         }
     </style>
 </head>
