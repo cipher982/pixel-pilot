@@ -77,16 +77,38 @@ class WindowCapture:
 
             time.sleep(0.1)  # Small delay to prevent high CPU usage
 
-    def capture_window(self, window_info: Dict[str, Any], output_path: str) -> Optional[Image.Image]:
-        """Capture the specified window using native screencapture tool."""
+    def capture_window(self, window_info: Dict[str, Any], output_path: Optional[str] = None) -> Optional[Image.Image]:
+        """Capture the specified window and return as PIL Image.
+
+        Args:
+            window_info: Window information dictionary
+            output_path: Optional path to save image. If None, returns image without saving
+        """
         if not window_info:
             return None
 
         window_id = window_info["kCGWindowNumber"]
 
-        os.system(f"screencapture -l {window_id} {output_path}")
+        # Create CGImage directly
+        image_ref = CG.CGWindowListCreateImage(
+            CG.CGRectNull,  # Capture full screen
+            CG.kCGWindowListOptionIncludingWindow,  # Capture specific window
+            window_id,  # Window to capture
+            CG.kCGWindowImageBoundsIgnoreFraming,  # Image options
+        )
 
-        image = Image.open(output_path)
+        # Convert CGImage to PIL Image
+        width = CG.CGImageGetWidth(image_ref)
+        height = CG.CGImageGetHeight(image_ref)
+        # bytes_per_row = CG.CGImageGetBytesPerRow(image_ref)
+        pixel_data = CG.CGDataProviderCopyData(CG.CGImageGetDataProvider(image_ref))
+
+        # Create PIL Image from raw data
+        image = Image.frombytes("RGBA", (width, height), pixel_data)
+
+        if output_path:
+            image.save(output_path)
+
         return image
 
 

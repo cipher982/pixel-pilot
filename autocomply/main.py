@@ -17,9 +17,7 @@ class ChromeAgent:
         self.audio_capture = None if no_audio else AudioCapture()
         self.action_system = ActionSystem()
         self.chrome_window = None
-        self.last_audio_time = 0
-        self.last_screenshot_time = 0
-        self.last_action_time = 0
+        self.last_process_time = 0
         self.no_audio = no_audio
 
     def setup(self) -> bool:
@@ -35,14 +33,22 @@ class ChromeAgent:
             logger.error("Selected window is not Chrome")
             return False
 
-        try:
-            if not self.no_audio:
+        if not self.no_audio:
+            try:
                 self.audio_capture.start_capture()
-        except Exception as e:
-            logger.error(f"Error starting audio capture: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Error starting audio capture: {e}")
+                return False
 
         return True
+
+    def should_process(self) -> bool:
+        """Check if enough time has passed to process next state."""
+        current_time = time.time()
+        if current_time - self.last_process_time >= Config.SCREENSHOT_INTERVAL:
+            self.last_process_time = current_time
+            return True
+        return False
 
     def run(self) -> None:
         """Main loop of the agent."""
@@ -52,32 +58,14 @@ class ChromeAgent:
         try:
             logger.info("Agent started successfully, beginning main loop...")
             while True:
-                current_time = time.time()
-
-                # Capture screenshot if interval elapsed
-                screenshot = None
-                if current_time - self.last_screenshot_time >= Config.SCREENSHOT_INTERVAL:
-                    logger.debug("Capturing screenshot...")
+                if self.should_process():
                     screenshot = self.window_capture.capture_window(self.chrome_window)
-                    self.last_screenshot_time = current_time
+                    audio_text = self.audio_capture.get_text() if self.audio_capture else None
 
-                # Get transcription if interval elapsed
-                transcription = None
-                if current_time - self.last_audio_time >= Config.AUDIO_INTERVAL:
-                    logger.debug("Getting audio transcription...")
-                    transcription = self.audio_capture.get_transcription()
-                    if transcription:
-                        logger.info(f"Transcribed: {transcription}")
-                    self.last_audio_time = current_time
-
-                # Process action if we have new data and action interval elapsed
-                if (screenshot or transcription) and current_time - self.last_action_time >= Config.ACTION_INTERVAL:
-                    action = self.action_system.decide_action(transcription, screenshot)
-                    if action:
-                        action_type, coordinates = action
-                        if action_type == "click":
-                            self.action_system.click_at_position(coordinates)
-                            self.last_action_time = current_time
+                    if screenshot:
+                        events = self.action_system.run(screenshot, audio_text)
+                        for event in events:
+                            logger.info(f"Event: {event}")
 
                 time.sleep(Config.MAIN_LOOP_INTERVAL)
 
@@ -88,7 +76,8 @@ class ChromeAgent:
 
     def cleanup(self) -> None:
         """Cleanup resources."""
-        self.audio_capture.stop_capture()
+        if self.audio_capture:
+            self.audio_capture.stop_capture()
 
 
 @click.command()
