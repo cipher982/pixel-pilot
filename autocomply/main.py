@@ -1,6 +1,8 @@
 import time
+from typing import Optional
 
 import click
+from PIL import Image
 
 from autocomply.action_system import ActionSystem
 from autocomply.audio_capture import AudioCapture
@@ -17,8 +19,8 @@ class ChromeAgent:
         self.audio_capture = None if no_audio else AudioCapture()
         self.action_system = ActionSystem()
         self.chrome_window = None
-        self.last_process_time = 0
-        self.no_audio = no_audio
+        self.last_capture_time = 0
+        self.running = False
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -33,7 +35,7 @@ class ChromeAgent:
             logger.error("Selected window is not Chrome")
             return False
 
-        if not self.no_audio:
+        if self.audio_capture:
             try:
                 self.audio_capture.start_capture()
             except Exception as e:
@@ -42,13 +44,33 @@ class ChromeAgent:
 
         return True
 
-    def should_process(self) -> bool:
-        """Check if enough time has passed to process next state."""
+    def capture_state(self) -> tuple[Optional[Image.Image], Optional[str]]:
+        """Capture the current state (screenshot and audio)."""
         current_time = time.time()
-        if current_time - self.last_process_time >= Config.SCREENSHOT_INTERVAL:
-            self.last_process_time = current_time
-            return True
-        return False
+        screenshot = None
+        audio_text = None
+
+        # Only capture new screenshot if enough time has passed
+        if current_time - self.last_capture_time >= Config.SCREENSHOT_INTERVAL:
+            screenshot = self.window_capture.capture_window(self.chrome_window)
+            self.last_capture_time = current_time
+
+        # Get latest audio text if available
+        if self.audio_capture:
+            audio_text = self.audio_capture.get_text()
+
+        return screenshot, audio_text
+
+    def process_events(self, events: list) -> None:
+        """Process events returned from the action system."""
+        if not events:  # Skip if no events
+            return
+
+        for event in events:
+            if event.get("action") == "END":
+                self.running = False
+                logger.info("Received stop signal")
+            logger.info(f"Event: {event}")
 
     def run(self) -> None:
         """Main loop of the agent."""
@@ -57,16 +79,24 @@ class ChromeAgent:
 
         try:
             logger.info("Agent started successfully, beginning main loop...")
-            while True:
-                if self.should_process():
-                    screenshot = self.window_capture.capture_window(self.chrome_window)
-                    audio_text = self.audio_capture.get_text() if self.audio_capture else None
+            self.running = True
 
-                    if screenshot:
-                        events = self.action_system.run(screenshot, audio_text)
-                        for event in events:
-                            logger.info(f"Event: {event}")
+            # Initialize with first screenshot
+            screenshot, _ = self.capture_state()
+            if screenshot is None:
+                logger.error("Failed to capture initial screenshot")
+                return
 
+            while self.running:
+                # Capture current state
+                screenshot, audio_text = self.capture_state()
+
+                # Process new screenshot
+                if screenshot is not None:
+                    events = self.action_system.run(screenshot=screenshot, audio_text=audio_text)
+                    self.process_events(events)
+
+                # Sleep to prevent excessive CPU usage
                 time.sleep(Config.MAIN_LOOP_INTERVAL)
 
         except KeyboardInterrupt:

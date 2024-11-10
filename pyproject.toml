@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1.7",
+    "debugpy>=1.8.8",
     "inquirer>=3.4.0",
     "langgraph>=0.2.45",
     "langsmith>=0.1.142",

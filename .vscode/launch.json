@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "RUN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": ["autocomply.main", "--no-audio"],
+            "console": "integratedTerminal"
+        }
+    ]
+}

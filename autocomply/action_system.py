@@ -18,50 +18,78 @@ logger = setup_logger(__name__)
 
 
 class State(TypedDict):
-    """State definition for the automation agent."""
+    """Define the state schema and reducers."""
 
     messages: Annotated[list, add_messages]
     screenshot: Optional[Image.Image]
-    audio_text: Optional[str]
     action: Optional[str]
+    parameters: dict
+    context: dict
 
 
 class ActionSystem:
     def __init__(self):
         self.llm = wrap_openai(OpenAI())
         pyautogui.FAILSAFE = True
+        # Store state between runs
+        self.current_state = {"messages": [], "context": {}, "parameters": {}}
         self.graph = self._build_graph()
 
+    def should_decide(self, state: State) -> str:
+        """Determine if we should move to decide step."""
+        logger.info(f"should_decide: action={state.get('action')}")
+        return "decide" if state.get("action") == "ANALYZED" else "analyze"
+
+    def should_execute(self, state: State) -> str:
+        """Determine if we should move to execute step."""
+        logger.info(f"should_execute: action={state.get('action')}")
+        return "execute" if state.get("action") in ["CLICK", "TYPE", "SCROLL", "WAIT", "END"] else "analyze"
+
     def _encode_image(self, image: Image.Image) -> str:
+        """Encode image to base64 string."""
         buffered = BytesIO()
         image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def decide_action(self, state: State) -> dict:
-        """Decide what action to take based on current state."""
-        logger.info("Deciding next action...")
+    def analyze_inputs(self, state: State) -> dict:
+        """Analyze screenshot and return updated state."""
+        logger.info("Analyzing inputs...")
 
-        messages = [
-            {
-                "role": "system",
-                "content": """
-                You are an automation assistant. 
-                Decide what action to take based on the screenshot and audio.
-                """,
-            }
-        ]
+        messages = state["messages"]
 
         if state["screenshot"]:
+            # Process screenshot and build message
             base64_image = self._encode_image(state["screenshot"])
             messages.append(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image", "image_url": f"data:image/png;base64,{base64_image}"},
-                        {"type": "text", "text": "Here is the current screen state."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
+                        {"type": "text", "text": "What has changed in this screenshot? What action should we take?"},
                     ],
                 }
             )
+
+            return {"messages": messages, "action": "ANALYZED", "parameters": {}, "context": state["context"]}
+
+        return {"messages": messages, "action": "WAIT", "parameters": {}, "context": state["context"]}
+
+    def decide_action(self, state: State) -> dict:
+        """Decide what action to take based on analysis."""
+        logger.info("Deciding next action...")
+
+        # Ensure all messages have the required 'role' field
+        system_message = {
+            "role": "system",
+            "content": """You are an automation assistant analyzing a sequence of screenshots.
+            If you see something that requires action, choose an appropriate response.
+            If nothing needs to be done, return WAIT.
+            Available actions: CLICK, TYPE, SCROLL, WAIT, END
+            Return a JSON object with 'action' and 'parameters' keys.""",
+        }
+
+        # Ensure all messages from state have 'role' field
+        messages = [system_message] + state.get("messages", [])
 
         try:
             response = self.llm.chat.completions.create(
@@ -69,46 +97,72 @@ class ActionSystem:
             )
             decision = response.choices[0].message.content
             logger.info(f"Decision: {decision}")
-            return {"messages": [decision], "action": decision["action"]}
+            return {
+                "messages": state["messages"],
+                "action": decision["action"],
+                "parameters": decision.get("parameters", {}),
+            }
         except Exception as e:
             logger.error(f"Error in decide_action: {e}")
-            return {"messages": [], "action": "WAIT"}
+            return {"messages": state["messages"], "action": "WAIT"}
 
     def execute_action(self, state: State) -> dict:
         """Execute the decided action."""
         action = state["action"]
-        logger.info(f"Executing action: {action}")
+        parameters = state.get("parameters", {})
+        logger.info(f"Executing action: {action} with parameters: {parameters}")
 
-        if action == "WAIT":
-            return {"messages": ["Waited"], "action": None}
-        elif action == "END":
-            return END
+        try:
+            if action == "WAIT":
+                return {"messages": ["Waited"], "action": None}
+            elif action == "END":
+                return END
+            elif action == "CLICK":
+                x, y = parameters.get("coordinates", (0, 0))
+                pyautogui.click(x, y)
+            elif action == "TYPE":
+                text = parameters.get("text", "")
+                pyautogui.write(text)
+            elif action == "SCROLL":
+                amount = parameters.get("amount", 0)
+                pyautogui.scroll(amount)
 
-        # Execute other actions here
-        return {"messages": [f"Executed {action}"], "action": None}
+            return {"messages": [f"Successfully executed {action}"], "action": None}
+        except Exception as e:
+            logger.error(f"Error executing action {action}: {e}")
+            return {"messages": [f"Failed to execute {action}"], "action": "WAIT"}
 
     def _build_graph(self) -> StateGraph:
-        """Build the action graph."""
-        graph = StateGraph(State)
+        """Build the action graph with analysis, decision, and execution nodes."""
+        workflow = StateGraph(State)
 
         # Add nodes
-        graph.add_node("decide", self.decide_action)
-        graph.add_node("execute", self.execute_action)
+        workflow.add_node("analyze", self.analyze_inputs)
+        workflow.add_node("decide", self.decide_action)
+        workflow.add_node("execute", self.execute_action)
 
-        # Add edges
-        graph.add_edge("decide", "execute")
-        graph.add_edge("execute", "decide")
+        # Set entry point explicitly
+        workflow.set_entry_point("analyze")
 
-        logger.info("Action graph built successfully")
-        return graph.compile()
+        # Add conditional edges with proper routing
+        workflow.add_conditional_edges("analyze", self.should_decide, {"decide": "decide", "analyze": "analyze"})
+
+        workflow.add_conditional_edges("decide", self.should_execute, {"execute": "execute", "analyze": "analyze"})
+
+        # Add direct edge back to analyze after execution
+        workflow.add_edge("execute", "analyze")
+
+        return workflow.compile()
 
     def run(self, screenshot: Optional[Image.Image], audio_text: Optional[str]) -> list:
         """Run one iteration of the graph with current inputs."""
         initial_state = {
-            "messages": [],
+            "messages": self.current_state["messages"],  # Use existing message history
             "screenshot": screenshot,
             "audio_text": audio_text,
             "action": None,
+            "context": self.current_state["context"],
+            "parameters": self.current_state["parameters"],
         }
 
         logger.info("Running action graph...")
