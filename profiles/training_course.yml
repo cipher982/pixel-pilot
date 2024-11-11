@@ -1,0 +1,18 @@
+name: "Standard Training Course"
+instructions: |
+  This is a training course that uses keyboard navigation.
+  - Wait for audio to complete before advancing
+  - Look for interactive elements that need selection
+actions:
+  select_next:
+    keys: ["command", "option", "ctrl", "."]
+    description: "Move to next slide/section, can always be used to advance if Next button is not greyed out"
+    triggers: ["new slide", "content complete", "ready to advance"]
+  tab:
+    keys: ["tab"]
+    description: "Move between interactive elements, used as a fallback if advance is not available"
+    triggers: ["need to select", "multiple choice", "interactive element"]
+  wait:
+    keys: []
+    description: "Wait for content to load, audio to complete, or animation to finish"
+    triggers: ["loading", "playing audio", "animation"]
