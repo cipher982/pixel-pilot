@@ -97,16 +97,30 @@ class WindowCapture:
 
         # Create CGImage directly
         image_ref = CG.CGWindowListCreateImage(
-            CG.CGRectNull,  # Capture full screen
-            CG.kCGWindowListOptionIncludingWindow,  # Capture specific window
-            window_id,  # Window to capture
-            CG.kCGWindowImageBoundsIgnoreFraming,  # Image options
+            CG.CGRectNull,
+            CG.kCGWindowListOptionIncludingWindow,
+            window_id,
+            CG.kCGWindowImageBoundsIgnoreFraming | CG.kCGWindowImageShouldBeOpaque,
         )
 
-        # Convert CGImage to PIL Image
+        # Convert to bitmap context to ensure proper pixel format
         width = CG.CGImageGetWidth(image_ref)
         height = CG.CGImageGetHeight(image_ref)
-        # bytes_per_row = CG.CGImageGetBytesPerRow(image_ref)
+        context = CG.CGBitmapContextCreate(
+            None,
+            width,
+            height,
+            8,  # bits per component
+            width * 4,  # bytes per row
+            CG.CGColorSpaceCreateDeviceRGB(),
+            CG.kCGImageAlphaPremultipliedLast,
+        )
+
+        # Draw the image in the bitmap context
+        CG.CGContextDrawImage(context, CG.CGRectMake(0, 0, width, height), image_ref)
+
+        # Get the image from the context
+        image_ref = CG.CGBitmapContextCreateImage(context)
         pixel_data = CG.CGDataProviderCopyData(CG.CGImageGetDataProvider(image_ref))
 
         # Create PIL Image from raw data
