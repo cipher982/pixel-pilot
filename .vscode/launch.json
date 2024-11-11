@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "-m",
-            "args": ["autocomply.main", "--no-audio"],
+            "args": ["autocomply.main", "--debug"],
             "console": "integratedTerminal"
         }
     ]

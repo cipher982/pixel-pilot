@@ -14,9 +14,10 @@ logger = setup_logger(__name__)
 
 
 class ChromeAgent:
-    def __init__(self, no_audio: bool = False):
-        self.window_capture = WindowCapture()
-        self.audio_capture = None if no_audio else AudioCapture()
+    def __init__(self, no_audio: bool = False, debug: bool = False):
+        self.debug = debug
+        self.window_capture = WindowCapture(debug=debug)
+        self.audio_capture = None if (no_audio or debug) else AudioCapture()
         self.action_system = ActionSystem()
         self.chrome_window = None
         self.last_capture_time = 0
@@ -24,6 +25,9 @@ class ChromeAgent:
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
+        if self.debug:
+            return True
+
         logger.info("Please select the Chrome window you want to control...")
         self.chrome_window = self.window_capture.select_window_interactive()
 
@@ -95,6 +99,8 @@ class ChromeAgent:
                 if screenshot is not None:
                     events = self.action_system.run(screenshot=screenshot, audio_text=audio_text)
                     self.process_events(events)
+                else:
+                    logger.error("Failed to capture screenshot")
 
                 # Sleep to prevent excessive CPU usage
                 time.sleep(Config.MAIN_LOOP_INTERVAL)
@@ -112,8 +118,9 @@ class ChromeAgent:
 
 @click.command()
 @click.option("--no-audio", is_flag=True, help="Disable audio capture")
-def main(no_audio: bool):
-    agent = ChromeAgent(no_audio=no_audio)
+@click.option("--debug", is_flag=True, help="Run in debug mode using test image")
+def main(no_audio: bool, debug: bool):
+    agent = ChromeAgent(no_audio=no_audio, debug=debug)
     agent.run()
 
 

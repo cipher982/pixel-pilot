@@ -1,15 +1,17 @@
 import base64
 from io import BytesIO
+from textwrap import dedent
 from typing import Annotated
 from typing import Optional
 from typing import TypedDict
 
 import pyautogui
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
-from langsmith.wrappers import wrap_openai
-from openai import OpenAI
 from PIL import Image
 
 from autocomply.logger import setup_logger
@@ -29,11 +31,12 @@ class State(TypedDict):
 
 class ActionSystem:
     def __init__(self):
-        self.llm = wrap_openai(OpenAI())
+        self.llm = ChatOpenAI(model="gpt-4o-mini")
         pyautogui.FAILSAFE = True
         # Store state between runs
         self.current_state = {"messages": [], "context": {}, "parameters": {}}
         self.graph = self._build_graph()
+        logger.info("Action system initialized")
 
     def should_decide(self, state: State) -> str:
         """Determine if we should move to decide step."""
@@ -61,13 +64,12 @@ class ActionSystem:
             # Process screenshot and build message
             base64_image = self._encode_image(state["screenshot"])
             messages.append(
-                {
-                    "role": "user",
-                    "content": [
+                HumanMessage(
+                    content=[
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
                         {"type": "text", "text": "What has changed in this screenshot? What action should we take?"},
                     ],
-                }
+                )
             )
 
             return {"messages": messages, "action": "ANALYZED", "parameters": {}, "context": state["context"]}
@@ -79,28 +81,28 @@ class ActionSystem:
         logger.info("Deciding next action...")
 
         # Ensure all messages have the required 'role' field
-        system_message = {
-            "role": "system",
-            "content": """You are an automation assistant analyzing a sequence of screenshots.
-            If you see something that requires action, choose an appropriate response.
-            If nothing needs to be done, return WAIT.
-            Available actions: CLICK, TYPE, SCROLL, WAIT, END
-            Return a JSON object with 'action' and 'parameters' keys.""",
-        }
+        system_message = SystemMessage(
+            content=dedent("""
+                You are an automation assistant analyzing a sequence of screenshots.
+                If you see something that requires action, choose an appropriate response.
+                If you see a quiz or any possible buttons/answers to click, choose CLICK.
+                If nothing needs to be done, return WAIT.
+                Available actions: CLICK, TYPE, SCROLL, WAIT, END
+                Return a JSON object with 'action', 'parameters', and 'description' keys.
+                For the description, write a short sentence about what you see in the screenshot.
+            """).strip()
+        )
 
         # Ensure all messages from state have 'role' field
         messages = [system_message] + state.get("messages", [])
 
         try:
-            response = self.llm.chat.completions.create(
-                model="gpt-4o-mini", messages=messages, response_format={"type": "json_object"}
-            )
-            decision = response.choices[0].message.content
-            logger.info(f"Decision: {decision}")
+            response = self.llm.invoke(messages, response_format={"type": "json_object"}).content
+            logger.info(f"Decision: {response}")
             return {
                 "messages": state["messages"],
-                "action": decision["action"],
-                "parameters": decision.get("parameters", {}),
+                "action": response["action"],
+                "parameters": response.get("parameters", {}),
             }
         except Exception as e:
             logger.error(f"Error in decide_action: {e}")
@@ -157,7 +159,7 @@ class ActionSystem:
     def run(self, screenshot: Optional[Image.Image], audio_text: Optional[str]) -> list:
         """Run one iteration of the graph with current inputs."""
         initial_state = {
-            "messages": self.current_state["messages"],  # Use existing message history
+            "messages": self.current_state["messages"],
             "screenshot": screenshot,
             "audio_text": audio_text,
             "action": None,

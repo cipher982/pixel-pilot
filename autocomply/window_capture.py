@@ -14,8 +14,11 @@ logger = setup_logger(__name__)
 
 
 class WindowCapture:
-    def __init__(self):
+    def __init__(self, debug: bool = False):
+        self.debug = debug
         self.options = CG.kCGWindowListOptionOnScreenOnly
+        if debug:
+            self.debug_image = Image.open("tests/quiz.png")
 
     @staticmethod
     def select_window_interactive() -> Optional[Dict[str, Any]]:
@@ -84,6 +87,9 @@ class WindowCapture:
             window_info: Window information dictionary
             output_path: Optional path to save image. If None, returns image without saving
         """
+        if self.debug:
+            return self.debug_image.copy()
+
         if not window_info:
             return None
 
