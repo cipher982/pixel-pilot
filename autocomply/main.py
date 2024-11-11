@@ -20,7 +20,7 @@ class ChromeAgent:
         self.audio_capture = None if (no_audio or debug) else AudioCapture()
         self.action_system = ActionSystem()
         self.chrome_window = None
-        self.last_capture_time = 0
+        self.last_capture_time = -Config.SCREENSHOT_INTERVAL
         self.running = False
 
     def setup(self) -> bool:
@@ -61,7 +61,7 @@ class ChromeAgent:
 
         # Get latest audio text if available
         if self.audio_capture:
-            audio_text = self.audio_capture.get_text()
+            audio_text = self.audio_capture.get_transcription()
 
         return screenshot, audio_text
 
@@ -86,10 +86,12 @@ class ChromeAgent:
             self.running = True
 
             # Initialize with first screenshot
-            screenshot, _ = self.capture_state()
-            if screenshot is None:
-                logger.error("Failed to capture initial screenshot")
-                return
+            screenshot, audio_text = self.capture_state()
+
+            # Process new screenshot
+            if screenshot is not None:
+                events = self.action_system.run(screenshot=screenshot, audio_text=audio_text)
+                self.process_events(events)
 
             while self.running:
                 # Capture current state

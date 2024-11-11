@@ -226,6 +226,17 @@ class AudioCapture:
         byte_io.seek(0)
         return byte_io
 
+    # def get_text(self) -> Optional[str]:
+    #     """Get transcribed text from audio capture.
+
+    #     Returns:
+    #         Optional[str]: Transcribed text if available, None otherwise
+    #     """
+    #     text = self.get_transcription()
+    #     if text:
+    #         logger.info(f"Audio captured: {text}")
+    #     return text
+
     def get_transcription(self) -> Optional[str]:
         """Get transcription of accumulated audio using OpenAI's Whisper API.
 

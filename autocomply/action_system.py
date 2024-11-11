@@ -1,4 +1,6 @@
 import base64
+import json
+import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Annotated
@@ -9,7 +11,6 @@ import pyautogui
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
-from langgraph.graph import END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
@@ -17,6 +18,9 @@ from PIL import Image
 from autocomply.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+MODEL_NAME = "gpt-4o-mini"
 
 
 class State(TypedDict):
@@ -31,10 +35,18 @@ class State(TypedDict):
 
 class ActionSystem:
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini")
+        self.llm = ChatOpenAI(model=MODEL_NAME)
         pyautogui.FAILSAFE = True
         # Store state between runs
-        self.current_state = {"messages": [], "context": {}, "parameters": {}}
+        self.current_state = {
+            "messages": [],
+            "context": {
+                "last_action": None,
+                "waiting_for_audio": False,
+                "tab_count": 0,  # Track tab position
+            },
+            "parameters": {},
+        }
         self.graph = self._build_graph()
         logger.info("Action system initialized")
 
@@ -46,7 +58,7 @@ class ActionSystem:
     def should_execute(self, state: State) -> str:
         """Determine if we should move to execute step."""
         logger.info(f"should_execute: action={state.get('action')}")
-        return "execute" if state.get("action") in ["CLICK", "TYPE", "SCROLL", "WAIT", "END"] else "analyze"
+        return "execute" if state.get("action") in ["CLICK", "TYPE", "WAIT", "END"] else "analyze"
 
     def _encode_image(self, image: Image.Image) -> str:
         """Encode image to base64 string."""
@@ -78,31 +90,39 @@ class ActionSystem:
 
     def decide_action(self, state: State) -> dict:
         """Decide what action to take based on analysis."""
-        logger.info("Deciding next action...")
-
-        # Ensure all messages have the required 'role' field
         system_message = SystemMessage(
             content=dedent("""
                 You are an automation assistant analyzing a sequence of screenshots.
-                If you see something that requires action, choose an appropriate response.
-                If you see a quiz or any possible buttons/answers to click, choose CLICK.
-                If nothing needs to be done, return WAIT.
-                Available actions: CLICK, TYPE, SCROLL, WAIT, END
-                Return a JSON object with 'action', 'parameters', and 'description' keys.
-                For the description, write a short sentence about what you see in the screenshot.
+                The content supports keyboard navigation with the following actions:
+                - TAB: Move between interactive elements
+                - ENTER: Activate current element
+                - SHIFT_ALT_PLUS: Advance to next slide
+                - WAIT: Wait for audio or animations
+                
+                If you see:
+                - A new slide: Start with TAB to begin navigation
+                - A question or interactive element: Use TAB until focused, then ENTER
+                - Content finished playing: Try SHIFT_ALT_PLUS to advance
+                - Loading or playing audio: Use WAIT
+                
+                Return a JSON object with:
+                - "action": One of TAB, ENTER, SHIFT_ALT_PLUS, WAIT
+                - "parameters": Additional context (optional)
+                - "description": What you see and why you chose this action
             """).strip()
         )
 
-        # Ensure all messages from state have 'role' field
         messages = [system_message] + state.get("messages", [])
 
         try:
             response = self.llm.invoke(messages, response_format={"type": "json_object"}).content
+            response = json.loads(response)
             logger.info(f"Decision: {response}")
             return {
                 "messages": state["messages"],
                 "action": response["action"],
                 "parameters": response.get("parameters", {}),
+                "context": state["context"],
             }
         except Exception as e:
             logger.error(f"Error in decide_action: {e}")
@@ -112,24 +132,32 @@ class ActionSystem:
         """Execute the decided action."""
         action = state["action"]
         parameters = state.get("parameters", {})
+        context = state.get("context", {})
         logger.info(f"Executing action: {action} with parameters: {parameters}")
 
         try:
             if action == "WAIT":
-                return {"messages": ["Waited"], "action": None}
-            elif action == "END":
-                return END
-            elif action == "CLICK":
-                x, y = parameters.get("coordinates", (0, 0))
-                pyautogui.click(x, y)
-            elif action == "TYPE":
-                text = parameters.get("text", "")
-                pyautogui.write(text)
-            elif action == "SCROLL":
-                amount = parameters.get("amount", 0)
-                pyautogui.scroll(amount)
+                time.sleep(2)  # Adjustable wait time
+                return {"messages": ["Waited"], "action": None, "context": context}
 
-            return {"messages": [f"Successfully executed {action}"], "action": None}
+            elif action == "TAB":
+                pyautogui.press("tab")
+                context["tab_count"] = context.get("tab_count", 0) + 1
+                time.sleep(0.5)
+
+            elif action == "ENTER":
+                pyautogui.press("enter")
+                context["tab_count"] = 0  # Reset tab count after interaction
+                time.sleep(0.5)
+
+            elif action == "SHIFT_ALT_PLUS":
+                pyautogui.hotkey("shift", "alt", "+")
+                context["tab_count"] = 0  # Reset tab count on new slide
+                time.sleep(1)
+
+            context["last_action"] = action
+            return {"messages": [f"Successfully executed {action}"], "action": None, "context": context}
+
         except Exception as e:
             logger.error(f"Error executing action {action}: {e}")
             return {"messages": [f"Failed to execute {action}"], "action": "WAIT"}
