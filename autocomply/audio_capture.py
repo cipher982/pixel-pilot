@@ -37,53 +37,44 @@ class AudioCapture:
 
         # Audio device setup
         self.devices = sd.query_devices()
-
-        # Try system audio capture first (macOS 12+)
         self.device_id = self._find_system_audio_device()
         if self.device_id is None:
-            raise "need audio"
-            # Fall back to specified device
             self.device_id = self._find_device(device_name)
+            if self.device_id is None:
+                raise ValueError(
+                    "Could not find suitable audio capture device. "
+                    "On macOS 12+, enable 'Audio Capture' in Security & Privacy settings. "
+                    "Otherwise, install BlackHole: brew install blackhole-2ch"
+                )
 
-        if self.device_id is None:
-            raise ValueError(
-                "Could not find suitable audio capture device. "
-                "On macOS 12+, enable 'Audio Capture' in Security & Privacy settings. "
-                "Otherwise, install BlackHole: brew install blackhole-2ch"
-            )
-        # Verify it's not a microphone device
+        # Verify device type
         device_info = self.devices[self.device_id]
         logger.info(f"Selected audio device: {device_info['name']}")
-        logger.info(f"Device details: {device_info}")
-        if device_info.get("hostapi") == 0:  # CoreAudio on macOS
-            if "input" in device_info.get("name", "").lower():
-                raise ValueError(f"{device_name} appears to be a microphone input device")
+        if device_info.get("hostapi") == 0 and "input" in device_info.get("name", "").lower():
+            raise ValueError(f"{device_name} appears to be a microphone input device")
 
-        # Audio settings (optimized for Whisper)
+        # Audio processing settings
+        # Audio processing settings
         self.sample_rate = 16000  # Whisper expects 16kHz
         self.channels = 1  # Mono audio
-        self.chunk_duration = 30  # Whisper processes 30-second chunks
-        self.samples_per_chunk = self.sample_rate * self.chunk_duration
-        self.min_audio_length = 3 * self.sample_rate  # Min 3 seconds before transcribing
+        self.chunk_duration = 30  # Restore original chunk duration
+        self.min_audio_length = 3 * self.sample_rate  # Min 3 seconds
+        self.energy_threshold = 0.001  # Restore original threshold
 
-        # Stream state
-        self.audio_queue = queue.Queue()
-        self.is_running = False
+        # Stream state management
+        # Stream state management
         self.stream = None
-
-        # Visualization settings
-        self.console = Console()
-        self.blocks = " ▁▂▃▄▅▆▇█"  # Granular volume visualization
-        self.last_visualization = 0
-        self.visualization_interval = Config.MAIN_LOOP_INTERVAL
-
-        # Timing controls
+        self.is_running = False
+        self.audio_queue = queue.Queue()
+        self.streaming_buffer = []
         self.last_transcription = 0
         self.audio_process_interval = Config.AUDIO_INTERVAL
 
-        # Add buffer for visualization data
+        # Visualization settings
+        self.console = Console()
+        self.blocks = " ▁▂▃▄▅▆▇█"  # Volume visualization characters
         self.current_chunk_viz = []
-        self.current_chunk_start = time.time()
+        self.current_chunk_start = time.time()  # Restore this for visualization
 
     @staticmethod
     def list_available_devices() -> List[Dict]:
@@ -226,33 +217,13 @@ class AudioCapture:
         byte_io.seek(0)
         return byte_io
 
-    # def get_text(self) -> Optional[str]:
-    #     """Get transcribed text from audio capture.
-
-    #     Returns:
-    #         Optional[str]: Transcribed text if available, None otherwise
-    #     """
-    #     text = self.get_transcription()
-    #     if text:
-    #         logger.info(f"Audio captured: {text}")
-    #     return text
-
     def get_transcription(self) -> Optional[str]:
-        """Get transcription of accumulated audio using OpenAI's Whisper API.
-
-        Returns:
-            Optional[str]: Transcribed text if successful, None otherwise
-        """
-        # Check timing interval
+        """Get transcription of accumulated audio using OpenAI's Whisper API."""
         current_time = time.time()
-        if current_time - self.last_transcription < self.audio_process_interval:
+        if current_time - self.last_transcription < self.audio_process_interval or self.audio_queue.empty():
             return None
 
-        # Check if we have audio to process
-        if self.audio_queue.empty():
-            return None
-
-        # Collect audio chunks up to our target duration
+        # Collect audio chunks
         audio_chunks = []
         total_samples = 0
         target_samples = self.sample_rate * self.chunk_duration
@@ -265,32 +236,36 @@ class AudioCapture:
             except queue.Empty:
                 break
 
-        # Ensure minimum audio length
-        if total_samples < self.min_audio_length:
-            logger.info(f"Audio too short: {total_samples} samples < {self.min_audio_length} minimum")
+        if not audio_chunks or total_samples < self.min_audio_length:
             return None
 
-        # Combine and process audio
         try:
+            # Combine audio chunks
             audio_data = np.concatenate(audio_chunks)
-            logger.debug(
-                f"Processing audio: shape={audio_data.shape}, duration={len(audio_data)/self.sample_rate:.1f}s"
+
+            # Check energy levels
+            chunk_size = int(0.1 * self.sample_rate)  # 100ms windows
+            energy = np.array(
+                [np.sqrt(np.mean(chunk**2)) for chunk in np.array_split(audio_data, len(audio_data) // chunk_size)]
             )
 
-            # Prepare and send to Whisper
+            if np.max(energy) < self.energy_threshold:
+                return None
+
+            # Prepare and transcribe
             audio_file = self._prepare_audio_file(audio_data)
             response = self.client.audio.transcriptions.create(model="whisper-1", file=audio_file, language="en")
 
-            # Print visualizations and transcription together
+            # Print visualizations and transcription
             logger.info("=== Audio Chunk ===")
             self._render_visualization(self.current_chunk_viz)
             logger.info(f"Transcription: {response.text}")
             logger.info("================")
 
-            # Reset visualization buffer
+            # Reset state
             self.current_chunk_viz = []
             self.current_chunk_start = time.time()
-            self.last_transcription = time.time()
+            self.last_transcription = current_time
 
             return response.text
 
