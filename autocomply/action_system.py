@@ -12,6 +12,7 @@ import yaml
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
@@ -174,7 +175,12 @@ class ActionSystem:
         try:
             self.graph.invoke(self.current_state)
         except KeyboardInterrupt:
-            logger.info("Stopping action system...")
+            logger.info("Stopping action system due to user interrupt...")
+        except GraphRecursionError as e:
+            logger.warning(f"Graph recursion limit reached: {e}")
+            logger.info("Consider increasing recursion_limit if this is expected behavior")
+        except Exception as e:
+            logger.error(f"Unexpected error in action system: {e}")
         finally:
             self.cleanup()
 
@@ -182,6 +188,10 @@ class ActionSystem:
         """Cleanup resources."""
         if self.audio_capture:
             self.audio_capture.stop_capture()
+
+        # Force state to END to signal completion
+        self.current_state["action"] = "END"
+        self.current_state["messages"].append(SystemMessage(content="Session terminated by user."))
 
     # Define graph nodes
     def capture_state(self, state: State) -> State:

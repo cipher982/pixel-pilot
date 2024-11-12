@@ -1,8 +1,14 @@
 name: "Standard Training Course"
 instructions: |
   This is a training course that uses keyboard navigation.
+
   - Wait for audio to complete before advancing
   - Look for interactive elements that need selection
+  - Typically the main interaction is the Next button, but it may be greyed out
+      (hint, if PREV is darker than Next, then Next is greyed out)
+  - If the Next button is greyed out, use the Tab key to move between interactive elements
+    for example, tab one at a time through quiz answers
+
 actions:
   select_next:
     keys: ["command", "option", "ctrl", "."]
