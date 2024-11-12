@@ -13,12 +13,14 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from rich.console import Console
 
-from autocomply.config import Config
 from autocomply.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 load_dotenv()
+
+
+AUDIO_INTERVAL = 5
 
 
 class AudioCapture:
@@ -68,7 +70,7 @@ class AudioCapture:
         self.audio_queue = queue.Queue()
         self.streaming_buffer = []
         self.last_transcription = 0
-        self.audio_process_interval = Config.AUDIO_INTERVAL
+        self.audio_process_interval = AUDIO_INTERVAL
 
         # Visualization settings
         self.console = Console()
@@ -289,9 +291,9 @@ if __name__ == "__main__":
         logger.info(f"Capturing audio from: {capture.devices[capture.device_id]['name']}")
         capture.start_capture()
 
-        logger.info(f"Listening (checking every {Config.AUDIO_INTERVAL} seconds)...")
+        logger.info(f"Listening (checking every {AUDIO_INTERVAL} seconds)...")
         while True:
-            time.sleep(Config.MAIN_LOOP_INTERVAL)
+            time.sleep(AUDIO_INTERVAL)
             text = capture.get_transcription()
 
     except KeyboardInterrupt:

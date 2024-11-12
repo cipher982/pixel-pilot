@@ -16,12 +16,13 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
 
+from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
+from autocomply.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
-
-MODEL_NAME = "gpt-4o-mini"
+MODEL_NAME = "gpt-4o-2024-08-06"
 
 
 class State(TypedDict):
@@ -29,37 +30,70 @@ class State(TypedDict):
 
     messages: Annotated[list, add_messages]
     screenshot: Optional[Image.Image]
+    audio_text: Optional[str]
     action: Optional[str]
     parameters: dict
     context: dict
 
 
 class ActionSystem:
-    def __init__(self, task_profile: Optional[str] = None, instructions: Optional[str] = None):
+    def __init__(
+        self,
+        task_profile: Optional[str] = None,
+        instructions: Optional[str] = None,
+        no_audio: bool = False,
+        debug: bool = False,
+    ):
         self.llm = ChatOpenAI(model=MODEL_NAME)
         self.config = self._load_task_config(task_profile, instructions)
+        self.debug = debug
+
+        # Initialize components
+        self.window_capture = WindowCapture(debug=debug)
+        self.audio_capture = None if (no_audio or debug) else AudioCapture()
+        self.window_info = None  # Will be set during setup
 
         # Initialize state
         self.current_state = {
             "messages": [],
+            "screenshot": None,
+            "audio_text": None,
+            "action": None,
+            "parameters": {},
             "context": {
                 "last_action": None,
                 "window_info": None,
             },
-            "parameters": {},
         }
 
+        # Initialize and compile the graph
         self.graph = self._build_graph()
         logger.info("Action system initialized")
 
-    def initialize(self) -> bool:
-        """Initialize window capture and selection."""
-        self.window_info = self.window_capture.select_window_interactive()
-        if self.window_info:
-            # Update window info in current state
-            self.current_state["context"]["window_info"] = self.window_info
+    def setup(self) -> bool:
+        """Setup the agent and ensure all components are ready."""
+        if self.debug:
             return True
-        return False
+
+        logger.info("Please select the window you want to control...")
+        self.window_info = self.window_capture.select_window_interactive()
+
+        if not self.window_info:
+            logger.error("No window selected")
+            return False
+
+        # Initialize action system with window info
+        self.current_state["context"]["window_info"] = self.window_info
+        logger.info(f"Window info stored: {self.window_info}")
+
+        if self.audio_capture:
+            try:
+                self.audio_capture.start_capture()
+            except Exception as e:
+                logger.error(f"Error starting audio capture: {e}")
+                return False
+
+        return True
 
     def _load_task_config(self, profile_path: Optional[str], override: Optional[str]) -> dict:
         default_config = {
@@ -70,8 +104,16 @@ class ActionSystem:
                     "description": "Move to next element",
                     "triggers": ["next element", "continue"],
                 },
-                "confirm": {"keys": ["enter"], "description": "Select element", "triggers": ["select", "confirm"]},
-                "wait": {"keys": [], "description": "Wait for content", "triggers": ["loading", "playing"]},
+                "confirm": {
+                    "keys": ["enter"],
+                    "description": "Select element",
+                    "triggers": ["select", "confirm"],
+                },
+                "wait": {
+                    "keys": [],
+                    "description": "Wait for content",
+                    "triggers": ["loading", "playing"],
+                },
             },
         }
 
@@ -88,35 +130,81 @@ class ActionSystem:
 
         return default_config
 
-    def set_window_info(self, window_info: dict) -> None:
-        """Set window info in context."""
-        self.current_state["context"]["window_info"] = window_info
+    def _build_graph(self) -> StateGraph:
+        workflow = StateGraph(State)
 
-    def should_decide(self, state: State) -> str:
-        """Determine if we should move to decide step."""
-        logger.info(f"should_decide: action={state.get('action')}")
-        return "decide" if state.get("action") == "ANALYZED" else "analyze"
+        # Add nodes
+        workflow.add_node("capture_state", self.capture_state)
+        workflow.add_node("analyze_inputs", self.analyze_inputs)
+        workflow.add_node("decide_action", self.decide_action)
+        workflow.add_node("execute_action", self.execute_action)
+        workflow.add_node("end", lambda state: state)  # End node
 
-    def should_execute(self, state: State) -> str:
-        """Determine if we should move to execute step."""
-        logger.info(f"should_execute: action={state.get('action')}")
+        # Set entry point
+        workflow.set_entry_point("capture_state")
 
-        if state.get("action") in ["WAIT", None]:
-            return "end"  # Terminate the graph execution by routing to the 'end' node
+        # Add edges
+        workflow.add_edge("capture_state", "analyze_inputs")
+        workflow.add_edge("analyze_inputs", "decide_action")
 
-        return "execute"
+        # Conditional edge from decide_action
+        workflow.add_conditional_edges(
+            "decide_action", self.should_continue, {"execute_action": "execute_action", "end": "end"}
+        )
 
-    def _encode_image(self, image: Image.Image) -> str:
-        """Encode image to base64 string."""
-        buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        # Edge from execute_action back to capture_state
+        workflow.add_edge("execute_action", "capture_state")
 
-    def analyze_inputs(self, state: State) -> dict:
+        return workflow.compile()
+
+    def should_continue(self, state: State) -> str:
+        """Determine whether to proceed to execute_action or end."""
+        action = state.get("action")
+        if action == "END":
+            return "end"
+        else:
+            return "execute_action"
+
+    def run(self) -> None:
+        """Run the action system's graph."""
+        if not self.setup():
+            return
+
+        logger.info("Starting action system graph...")
+        try:
+            self.graph.invoke(self.current_state)
+        except KeyboardInterrupt:
+            logger.info("Stopping action system...")
+        finally:
+            self.cleanup()
+
+    def cleanup(self) -> None:
+        """Cleanup resources."""
+        if self.audio_capture:
+            self.audio_capture.stop_capture()
+
+    # Define graph nodes
+    def capture_state(self, state: State) -> State:
+        """Capture the current state (screenshot and audio)."""
+        logger.info("Capturing state...")
+
+        if self.debug:
+            # Load test image
+            screenshot = Image.open("test_image.png")
+            audio_text = None
+        else:
+            screenshot = self.window_capture.capture_window(self.window_info)
+            audio_text = self.audio_capture.get_transcription() if self.audio_capture else None
+
+        state["screenshot"] = screenshot
+        state["audio_text"] = audio_text
+        return state
+
+    def analyze_inputs(self, state: State) -> State:
         """Analyze screenshot and return updated state."""
         logger.info("Analyzing inputs...")
 
-        messages = state["messages"]
+        messages = state.get("messages", [])
 
         if state["screenshot"]:
             base64_image = self._encode_image(state["screenshot"])
@@ -128,30 +216,37 @@ class ActionSystem:
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
                         {
                             "type": "text",
-                            "text": (
-                                f"New screenshot taken at {timestamp}. "
-                                "Focus on identifying any changes in: "
-                                "1) Button states (enabled/disabled), "
-                                "2) Video player status, "
-                                "3) New content appearance. "
-                                "What action should we take?"
-                            ),
+                            "text": dedent(f"""
+                                New screenshot taken at {timestamp}.
+                                Focus on identifying any changes in:
+                                1) Button states (enabled/disabled),
+                                2) Video player status,
+                                3) New content appearance.
+                                What action should we take?
+                            """).strip(),
                         },
                     ]
                 )
             )
 
-            # Keep only last 2 screenshots to ensure we're comparing recent states
-            if len(messages) > 3:
-                messages = messages[-3:]
+            # Keep only last N messages to limit context size
+            if len(messages) > 10:
+                messages = messages[-10:]
 
-            return {"messages": messages, "action": "ANALYZED", "parameters": {}, "context": state["context"]}
+            state["messages"] = messages
+            state["action"] = "ANALYZED"
+            return state
 
-        return {"messages": messages, "action": "WAIT", "parameters": {}, "context": state["context"]}
+        else:
+            logger.error("Failed to capture screenshot")
+            state["action"] = "WAIT"
+            return state
 
-    def decide_action(self, state: State) -> dict:
+    def decide_action(self, state: State) -> State:
         """Decide what action to take based on analysis."""
-        # Only include trigger descriptions if triggers are defined
+        logger.info("Deciding action...")
+
+        # Build the prompt
         actions_description = "\n".join(
             [f"- {name}: {details['description']}" for name, details in self.config["actions"].items()]
         )
@@ -161,14 +256,14 @@ class ActionSystem:
                 You are an automation assistant analyzing screenshots.
                 Available actions:
                 {actions_description}
-                
-                If content is loading or playing: Return WAIT
-                Otherwise: Choose one of these actions: {', '.join(self.config['actions'].keys())}
+                - END: Finish the task if it is complete.
 
-                But, err on the side of actioning if you are unsure, cant hurt to try.
-                
+                If the task is complete or no further actions are necessary, return 'END'.
+                If content is loading or playing, return 'WAIT'.
+                Otherwise, choose one of these actions: {', '.join(self.config['actions'].keys())}
+
                 Return a JSON object with:
-                - "action": Either WAIT or one of the available actions
+                - "action": One of the available actions including 'WAIT' or 'END'
                 - "description": Why you chose this action
             """).strip()
         )
@@ -178,62 +273,85 @@ class ActionSystem:
         try:
             response = self.llm.invoke(messages, response_format={"type": "json_object"}).content
             response = json.loads(response)
-            # logger.info(f"Decision: {response}")
-            return {
-                "messages": state["messages"],
-                "action": response["action"],
-                "parameters": response.get("parameters", {}),
-                "context": state["context"],
-            }
+            logger.info(f"Decision: {response}")
+
+            state["action"] = response["action"]
+            state["parameters"] = response.get("parameters", {})
+            return state
+
         except Exception as e:
             logger.error(f"Error in decide_action: {e}")
-            return {"messages": state["messages"], "action": "WAIT"}
+            state["action"] = "WAIT"
+            return state
 
-    def execute_action(self, state: State) -> dict:
+    def execute_action(self, state: State) -> State:
         """Execute the decided action."""
         action = state["action"]
         context = state.get("context", {})
 
         logger.info(f"Executing action: {action}")
 
-        if action in [None, "WAIT"]:
+        if action == "WAIT":
+            logger.info("Action is WAIT, waiting for a while.")
+            time.sleep(2)  # Adjust as needed
+            # After waiting, reset action to None
+            state["action"] = None
+            return state
+
+        if action == "END":
+            logger.info("Action is END, task is complete.")
+            # Optionally, perform any cleanup or final actions here.
+            return state  # The graph will proceed to the 'end' node.
+
+        if action is None:
             logger.info("No action to execute.")
-            return state  # Return the state as is
+            return state
 
         try:
             action_config = self.config["actions"].get(action.lower())
             if not action_config:
                 logger.error(f"Unknown action: {action}")
-                return {"messages": [f"Unknown action {action}"], "action": "WAIT"}
-
-            logger.info(f"Action config: {action_config}")  # Log the config
+                state["action"] = None
+                return state
 
             if action_config["keys"]:
                 window_info = context.get("window_info")
-                logger.info(f"Window info for keystroke: {window_info}")  # Log window info
-
                 if not window_info:
                     logger.error("No window info available")
-                    return {"messages": ["No window info"], "action": "WAIT"}
+                    state["action"] = None
+                    return state
 
                 success = self._send_keys_to_window(action_config["keys"])
                 if not success:
                     logger.error("Failed to send keystrokes")
-                    return {"messages": ["Failed to send keystrokes"], "action": "WAIT"}
+                    state["action"] = None
+                    return state
 
                 logger.info(f"Keystrokes sent successfully: {'+'.join(action_config['keys'])}")
                 time.sleep(1.5)
-            else:  # WAIT action
-                time.sleep(2)
+            else:
+                # Handle other actions that may not involve keys
+                pass
         except Exception as e:
             logger.error(f"Error executing action {action}: {e}")
-            return {"messages": [f"Failed to execute {action}"], "action": "WAIT"}
+            state["action"] = None
+            return state
 
         context["last_action"] = action
-        return {"messages": [f"Successfully executed {action}"], "action": None, "context": context}
+        state["context"] = context
+        # After executing action, reset action to None
+        state["action"] = None
+        return state
+
+    # Helper methods
+    def _encode_image(self, image: Image.Image) -> str:
+        """Encode image to base64 string."""
+        buffered = BytesIO()
+        image.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
-        """Send keystrokes to specific window using window_id."""
+        """Send keystrokes to specific window using AppleScript."""
         try:
             window_info = self.current_state["context"]["window_info"]
             if not window_info:
@@ -266,13 +384,10 @@ class ActionSystem:
             else:
                 using_clause = ""
 
-            # Ensure there is at least one regular key to send
             if not regular_keys:
                 logger.error("No regular keys to send")
                 return False
 
-            # For simplicity, send one regular key at a time
-            # Modify as needed to handle multiple keys
             key_commands = "\n".join([f'keystroke "{key}"{using_clause}' for key in regular_keys])
 
             script = f"""
@@ -305,41 +420,5 @@ class ActionSystem:
         }
         code = key_codes.get(key.lower())
         if code is None:
-            raise ValueError(f"Unknown key: {key}")  # Better error handling
+            raise ValueError(f"Unknown key: {key}")
         return code
-
-    def _build_graph(self) -> StateGraph:
-        workflow = StateGraph(State)
-
-        # Add nodes
-        workflow.add_node("analyze", self.analyze_inputs)
-        workflow.add_node("decide", self.decide_action)
-        workflow.add_node("execute", self.execute_action)
-        # Add an 'end' node that does nothing
-        workflow.add_node("end", lambda state: state)
-
-        # Set entry point explicitly
-        workflow.set_entry_point("analyze")
-
-        # Linear flow with conditional termination
-        workflow.add_edge("analyze", "decide")
-        workflow.add_conditional_edges("decide", self.should_execute, {"execute": "execute", "end": "end"})
-
-        return workflow.compile()
-
-    def run(self, screenshot: Optional[Image.Image], audio_text: Optional[str]) -> list:
-        """Run one iteration of the graph with current inputs."""
-        # Update current state with new screenshot
-        self.current_state = {
-            "messages": self.current_state["messages"],
-            "screenshot": screenshot,  # This gets lost in subsequent iterations
-            "audio_text": audio_text,
-            "action": None,
-            "context": self.current_state["context"],
-            "parameters": self.current_state["parameters"],
-        }
-
-        logger.info("Running action graph...")
-        events = list(self.graph.stream(self.current_state))  # Use self.current_state instead
-        logger.info(f"Graph generated {len(events)} events")
-        return events
