@@ -3,11 +3,15 @@
 <head>
     <title>Simple Quiz</title>
     <style>
+        /* Base styles */
         body {
             background-color: #000;
             color: #fff;
+            margin: 0;
+            padding: 20px;
         }
 
+        /* Quiz container */
         .question-container {
             max-width: 600px;
             margin: 50px auto;
@@ -18,10 +22,15 @@
             box-shadow: 0 4px 6px rgba(255, 255, 255, 0.1);
         }
 
-        .question-container.active {
-            display: block;
+        .question-container.active { display: block; }
+
+        /* Question text */
+        .question-text {
+            font-size: 20px;
+            margin-bottom: 20px;
         }
 
+        /* Options grid */
         .options {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -29,24 +38,29 @@
             margin-top: 20px;
         }
 
+        /* Option buttons */
         .option {
-            padding: 15px;
+            padding: 15px 15px 15px 35px;
             border: 1px solid #444;
             border-radius: 5px;
             cursor: pointer;
             text-align: center;
             background-color: #222;
             transition: background-color 0.2s ease;
+            position: relative;
         }
 
-        .option:hover {
+        .option::before {
+            content: attr(data-key);
+            position: absolute;
+            left: 10px;
+            color: #666;
+        }
+
+        .option:hover, 
+        .option:focus {
             background-color: #333;
-        }
-
-        .question-text {
-            font-size: 20px;
-            margin-bottom: 20px;
-            color: #fff;
+            outline: 2px solid #fff;
         }
     </style>
 </head>
@@ -55,30 +69,30 @@
         <div class="question-container active" data-question="1">
             <div class="question-text">What is the capital of France?</div>
             <div class="options">
-                <div class="option">London</div>
-                <div class="option">Berlin</div>
-                <div class="option">Paris</div>
-                <div class="option">Madrid</div>
+                <div class="option" data-key="1" tabindex="0">London</div>
+                <div class="option" data-key="2" tabindex="0">Berlin</div>
+                <div class="option" data-key="3" tabindex="0">Paris</div>
+                <div class="option" data-key="4" tabindex="0">Madrid</div>
             </div>
         </div>
 
         <div class="question-container" data-question="2">
             <div class="question-text">Which planet is known as the Red Planet?</div>
             <div class="options">
-                <div class="option">Venus</div>
-                <div class="option">Mars</div>
-                <div class="option">Jupiter</div>
-                <div class="option">Saturn</div>
+                <div class="option" data-key="1" tabindex="0">Venus</div>
+                <div class="option" data-key="2" tabindex="0">Mars</div>
+                <div class="option" data-key="3" tabindex="0">Jupiter</div>
+                <div class="option" data-key="4" tabindex="0">Saturn</div>
             </div>
         </div>
 
         <div class="question-container" data-question="3">
             <div class="question-text">What is 2 + 2?</div>
             <div class="options">
-                <div class="option">3</div>
-                <div class="option" data-correct="true">4</div>
-                <div class="option">5</div>
-                <div class="option">6</div>
+                <div class="option" data-key="1" tabindex="0">3</div>
+                <div class="option" data-key="2" tabindex="0">4</div>
+                <div class="option" data-key="3" tabindex="0">5</div>
+                <div class="option" data-key="4" tabindex="0">6</div>
             </div>
         </div>
 
@@ -89,20 +103,47 @@
     </div>
 
     <script>
-        let score = 0;
-        const correctAnswers = {
-            "1": "Paris",
-            "2": "Mars",
-            "3": "4"
-        };
+        const quiz = {
+            score: 0,
+            correctAnswers: {
+                "1": "Paris",
+                "2": "Mars",
+                "3": "4"
+            },
 
-        document.querySelectorAll(".option").forEach(option => {
-            option.addEventListener("click", () => {
-                const currentQuestion = option.closest(".question-container");
+            init() {
+                // Add click and keyboard handlers to options
+                document.querySelectorAll(".option").forEach(option => {
+                    option.addEventListener("click", this.handleAnswer);
+                    option.addEventListener("keydown", (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            this.handleAnswer.call(option);
+                        }
+                    });
+                });
+
+                // Add number key support
+                document.addEventListener("keydown", (e) => {
+                    const key = e.key;
+                    if (key >= "1" && key <= "4") {
+                        const activeQuestion = document.querySelector(".question-container.active");
+                        if (activeQuestion && !activeQuestion.id) {
+                            const option = activeQuestion.querySelector(`[data-key="${key}"]`);
+                            if (option) {
+                                this.handleAnswer.call(option);
+                            }
+                        }
+                    }
+                });
+            },
+
+            handleAnswer() {
+                const currentQuestion = this.closest(".question-container");
                 const questionNumber = currentQuestion.dataset.question;
                 
-                if (option.textContent === correctAnswers[questionNumber]) {
-                    score++;
+                if (this.textContent === quiz.correctAnswers[questionNumber]) {
+                    quiz.score++;
                 }
 
                 currentQuestion.classList.remove("active");
@@ -111,11 +152,16 @@
                 if (nextQuestion) {
                     nextQuestion.classList.add("active");
                     if (nextQuestion.id === "score-screen") {
-                        document.getElementById("score").textContent = score;
+                        document.getElementById("score").textContent = quiz.score;
+                    } else {
+                        nextQuestion.querySelector(".option").focus();
                     }
                 }
-            });
-        });
+            }
+        };
+
+        // Initialize the quiz
+        quiz.init();
     </script>
 </body>
 </html>

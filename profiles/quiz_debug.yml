@@ -1,0 +1,14 @@
+name: "Quiz Navigation Profile"
+instructions: |
+  Navigate through quiz questions by pressing the number key 
+  that corresponds to the correct answer (1-4).
+  Each option is clearly labeled with its number.
+
+actions:
+  select_answer: 
+    keys: ["${answer}"]
+    description: "Select answer by pressing its number"
+    parameters:
+      - name: "answer"
+        description: "The number of the answer to select"
+        type: "string"

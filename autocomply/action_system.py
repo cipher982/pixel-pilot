@@ -9,6 +9,7 @@ from typing import Optional
 from typing import TypedDict
 
 import yaml
+from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
@@ -24,6 +25,7 @@ from autocomply.window_capture import WindowCapture
 logger = setup_logger(__name__)
 
 MODEL_NAME = "gpt-4o-2024-08-06"
+MAX_MESSAGES = 5
 
 
 class State(TypedDict):
@@ -240,8 +242,8 @@ class ActionSystem:
             )
 
             # Keep only last N messages to limit context size
-            if len(messages) > 10:
-                messages = messages[-10:]
+            if len(messages) > MAX_MESSAGES:
+                messages = messages[-MAX_MESSAGES:]
 
             state["messages"] = messages
             state["action"] = "ANALYZED"
@@ -275,6 +277,7 @@ class ActionSystem:
                 Return a JSON object with:
                 - "action": One of the available actions including 'WAIT' or 'END'
                 - "description": Why you chose this action
+                - "parameters": Required parameters for the chosen action
             """).strip()
         )
 
@@ -285,12 +288,18 @@ class ActionSystem:
             response = json.loads(response)
             logger.info(f"Decision: {response}")
 
+            # Add AI's response to messages
+            state["messages"].append(
+                AIMessage(content=f"Decision: {response['description']} -> Action: {response['action']}")
+            )
+
             state["action"] = response["action"]
             state["parameters"] = response.get("parameters", {})
             return state
 
         except Exception as e:
             logger.error(f"Error in decide_action: {e}")
+            state["messages"].append(SystemMessage(content=f"Error occurred: {str(e)}. Defaulting to WAIT action."))
             state["action"] = "WAIT"
             return state
 
@@ -298,6 +307,7 @@ class ActionSystem:
         """Execute the decided action."""
         action = state["action"]
         context = state.get("context", {})
+        parameters = state.get("parameters", {})
 
         logger.info(f"Executing action: {action}")
 
@@ -331,13 +341,20 @@ class ActionSystem:
                     state["action"] = None
                     return state
 
-                success = self._send_keys_to_window(action_config["keys"])
+                raw_keys = action_config["keys"]
+
+                # Handle both dict and direct value parameters
+                param_value = parameters.get("answer") if isinstance(parameters, dict) else parameters
+                processed_keys = [str(param_value) if key == "${answer}" else key for key in raw_keys]
+
+                logger.info(f"Sending keys: {processed_keys}")
+                success = self._send_keys_to_window(processed_keys)
                 if not success:
                     logger.error("Failed to send keystrokes")
                     state["action"] = None
                     return state
 
-                logger.info(f"Keystrokes sent successfully: {'+'.join(action_config['keys'])}")
+                logger.info(f"Keystrokes sent successfully: {'+'.join(processed_keys)}")
                 time.sleep(1.5)
             else:
                 # Handle other actions that may not involve keys
@@ -349,7 +366,6 @@ class ActionSystem:
 
         context["last_action"] = action
         state["context"] = context
-        # After executing action, reset action to None
         state["action"] = None
         return state
 
@@ -368,37 +384,8 @@ class ActionSystem:
                 logger.error("No window info stored")
                 return False
 
-            # Map our modifier names to AppleScript modifier syntax
-            modifier_map = {
-                "command": "command down",
-                "option": "option down",
-                "ctrl": "control down",
-                "shift": "shift down",
-            }
-
-            modifiers = []
-            regular_keys = []
-
-            for key in keys:
-                if key in modifier_map:
-                    modifiers.append(modifier_map[key])
-                else:
-                    regular_keys.append(key)
-
-            logger.info(f"Modifiers: {modifiers}")
-            logger.info(f"Regular keys: {regular_keys}")
-
-            # Build the using clause with modifiers
-            if modifiers:
-                using_clause = f" using {{{', '.join(modifiers)}}}"
-            else:
-                using_clause = ""
-
-            if not regular_keys:
-                logger.error("No regular keys to send")
-                return False
-
-            key_commands = "\n".join([f'keystroke "{key}"{using_clause}' for key in regular_keys])
+            # Simple keystroke command for each key
+            key_commands = "\n".join([f'keystroke "{key}"' for key in keys])
 
             script = f"""
                 tell application "System Events"
@@ -409,7 +396,6 @@ class ActionSystem:
                 end tell
             """
 
-            logger.info(f"Generated AppleScript:\n{script}")
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
             logger.info(f"AppleScript result: {result.stdout}")
             return True
@@ -418,17 +404,19 @@ class ActionSystem:
             logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
             return False
 
-    def _get_key_code(self, key: str) -> int:
-        """Convert key name to AppleScript key code."""
-        key_codes = {
-            "command": 55,
-            "option": 58,
-            "ctrl": 59,
-            ".": 47,
-            "tab": 48,
-            # Add more as needed
-        }
-        code = key_codes.get(key.lower())
-        if code is None:
-            raise ValueError(f"Unknown key: {key}")
-        return code
+    # NO LONGER NEEDED, MAY REMOVE LATER
+    # def _get_key_code(self, key: str) -> int:
+    #     """Convert key name to AppleScript key code."""
+    #     key_codes = {
+    #         "command": 55,
+    #         "option": 58,
+    #         "ctrl": 59,
+    #         "tab": 48,
+    #         "space": 49,
+    #         "enter": 36,
+    #         "shift": 56,
+    #     }
+    #     code = key_codes.get(key.lower())
+    #     if code is None:
+    #         raise ValueError(f"Unknown key: {key}")
+    #     return code
