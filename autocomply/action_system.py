@@ -20,6 +20,8 @@ from PIL import Image
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
+from autocomply.utils import check_ocr_box
+from autocomply.utils import get_som_labeled_img
 from autocomply.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
@@ -404,19 +406,36 @@ class ActionSystem:
             logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
             return False
 
-    # NO LONGER NEEDED, MAY REMOVE LATER
-    # def _get_key_code(self, key: str) -> int:
-    #     """Convert key name to AppleScript key code."""
-    #     key_codes = {
-    #         "command": 55,
-    #         "option": 58,
-    #         "ctrl": 59,
-    #         "tab": 48,
-    #         "space": 49,
-    #         "enter": 36,
-    #         "shift": 56,
-    #     }
-    #     code = key_codes.get(key.lower())
-    #     if code is None:
-    #         raise ValueError(f"Unknown key: {key}")
-    #     return code
+    def test_parser(self, image_path: str) -> None:
+        """Simple test method to verify OmniParser integration."""
+        try:
+            # Use existing utils functions
+            ocr_bbox_rslt, _ = check_ocr_box(
+                image_path,
+                display_img=False,
+                output_bb_format="xyxy",
+                goal_filtering=None,
+                easyocr_args={"paragraph": False, "text_threshold": 0.9},
+                use_paddleocr=True,
+            )
+            text, ocr_bbox = ocr_bbox_rslt
+
+            # Get labeled image and parsed content
+            labeled_img, coordinates, parsed_content = get_som_labeled_img(
+                image_path,
+                self.yolo_model,
+                BOX_TRESHOLD=0.05,
+                output_coord_in_ratio=True,
+                ocr_bbox=ocr_bbox,
+                caption_model_processor=self.caption_model_processor,
+                ocr_text=text,
+                iou_threshold=0.1,
+            )
+
+            logger.info("Parser test successful!")
+            logger.info(f"Parsed content: {parsed_content}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Parser test failed: {e}")
+            return False
