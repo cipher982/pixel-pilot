@@ -17,6 +17,9 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
+from transformers import AutoModelForCausalLM
+from transformers import AutoProcessor
+from ultralytics import YOLO
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
@@ -52,6 +55,18 @@ class ActionSystem:
         self.llm = ChatOpenAI(model=MODEL_NAME)
         self.config = self._load_task_config(task_profile, instructions)
         self.debug = debug
+
+        # Initialize OmniParser models
+        try:
+            self.yolo_model = YOLO("weights/icon_detect/best.pt")
+            processor = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
+            model = AutoModelForCausalLM.from_pretrained("weights/icon_caption_florence", trust_remote_code=True)
+            self.caption_model_processor = {"processor": processor, "model": model}
+            logger.info("OmniParser models loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load OmniParser models: {e}")
+            self.yolo_model = None
+            self.caption_model_processor = None
 
         # Initialize components
         self.window_capture = WindowCapture(debug=debug)
@@ -416,7 +431,7 @@ class ActionSystem:
                 output_bb_format="xyxy",
                 goal_filtering=None,
                 easyocr_args={"paragraph": False, "text_threshold": 0.9},
-                use_paddleocr=True,
+                use_paddleocr=False,
             )
             text, ocr_bbox = ocr_bbox_rslt
 

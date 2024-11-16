@@ -14,22 +14,23 @@ import torchvision.transforms as T
 
 # %matplotlib inline
 from matplotlib import pyplot as plt
-from paddleocr import PaddleOCR
+
+# from paddleocr import PaddleOCR
 from PIL import Image
 from torchvision.ops import box_convert
 from torchvision.transforms import ToPILImage
 
 reader = easyocr.Reader(["en"])
-paddle_ocr = PaddleOCR(
-    lang="en",  # other lang also available
-    use_angle_cls=False,
-    use_gpu=False,  # using cuda will conflict with pytorch in the same process
-    show_log=False,
-    max_batch_size=1024,
-    use_dilation=True,  # improves accuracy
-    det_db_score_mode="slow",  # improves accuracy
-    rec_batch_num=1024,
-)
+# paddle_ocr = PaddleOCR(
+#     lang="en",  # other lang also available
+#     use_angle_cls=False,
+#     use_gpu=False,  # using cuda will conflict with pytorch in the same process
+#     show_log=False,
+#     max_batch_size=1024,
+#     use_dilation=True,  # improves accuracy
+#     det_db_score_mode="slow",  # improves accuracy
+#     rec_batch_num=1024,
+# )
 
 
 def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2-opt-2.7b", device=None):
@@ -277,7 +278,7 @@ def annotate(
 
     labels = [f"{phrase}" for phrase in range(boxes.shape[0])]
 
-    from util.box_annotator import BoxAnnotator
+    from autocomply.util.box_annotator import BoxAnnotator
 
     box_annotator = BoxAnnotator(
         text_scale=text_scale, text_padding=text_padding, text_thickness=text_thickness, thickness=thickness
@@ -447,9 +448,10 @@ def check_ocr_box(
     image_path, display_img=True, output_bb_format="xywh", goal_filtering=None, easyocr_args=None, use_paddleocr=False
 ):
     if use_paddleocr:
-        result = paddle_ocr.ocr(image_path, cls=False)[0]
-        coord = [item[0] for item in result]
-        text = [item[1][0] for item in result]
+        # result = paddle_ocr.ocr(image_path, cls=False)[0]
+        # coord = [item[0] for item in result]
+        # text = [item[1][0] for item in result]
+        raise NotImplementedError("PaddleOCR not implemented")
     else:  # EasyOCR
         if easyocr_args is None:
             easyocr_args = {}

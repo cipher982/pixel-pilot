@@ -163,3 +163,4 @@ cython_debug/
 
 scratch/
 .DS_Store
+weights/

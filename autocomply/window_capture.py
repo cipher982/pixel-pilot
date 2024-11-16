@@ -18,7 +18,7 @@ class WindowCapture:
         self.debug = debug
         self.options = CG.kCGWindowListOptionOnScreenOnly
         if debug:
-            self.debug_image = Image.open("tests/quiz.png")
+            self.debug_image = Image.open("./examples/quiz.png")
 
     @staticmethod
     def select_window_interactive() -> Optional[Dict[str, Any]]:
