@@ -18,7 +18,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
 from transformers import AutoModelForCausalLM
-from transformers import AutoProcessor
 from ultralytics import YOLO
 
 from autocomply.audio_capture import AudioCapture
@@ -58,15 +57,15 @@ class ActionSystem:
 
         # Initialize OmniParser models
         try:
+            logger.info("Loading OmniParser models...")
             self.yolo_model = YOLO("weights/icon_detect/best.pt")
-            processor = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
+            processor = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
             model = AutoModelForCausalLM.from_pretrained("weights/icon_caption_florence", trust_remote_code=True)
             self.caption_model_processor = {"processor": processor, "model": model}
             logger.info("OmniParser models loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load OmniParser models: {e}")
-            self.yolo_model = None
-            self.caption_model_processor = None
+            raise e
 
         # Initialize components
         self.window_capture = WindowCapture(debug=debug)
@@ -217,13 +216,8 @@ class ActionSystem:
         """Capture the current state (screenshot and audio)."""
         logger.info("Capturing state...")
 
-        if self.debug:
-            # Load test image
-            screenshot = Image.open("test_image.png")
-            audio_text = None
-        else:
-            screenshot = self.window_capture.capture_window(self.window_info)
-            audio_text = self.audio_capture.get_transcription() if self.audio_capture else None
+        screenshot = self.window_capture.capture_window(self.window_info)
+        audio_text = self.audio_capture.get_transcription() if self.audio_capture else None
 
         state["screenshot"] = screenshot
         state["audio_text"] = audio_text

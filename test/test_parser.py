@@ -1,20 +1,30 @@
+import logging
+
 from autocomply.action_system import ActionSystem
+
+logging.basicConfig(level=logging.INFO)
 
 
 def main():
-    """Test the parser."""
     print("Testing parser...")
+
     # Initialize with debug mode
-    action_system = ActionSystem(debug=True)
-    print("Action system initialized")
-    # Test with a sample image
+    action_system = ActionSystem()
+
+    # Test with a sample screenshot
     test_image = "./examples/quiz.png"
+
+    print("\nRunning parser test...")
     success = action_system.test_parser(test_image)
 
     if success:
-        print("OmniParser integration test passed!")
+        print("\nTest Results:")
+        print("-" * 50)
+        print("✓ Models loaded successfully")
+        print("✓ Screenshot parsed")
+        print("✓ OCR and icon detection completed")
     else:
-        print("OmniParser integration test failed!")
+        print("\n❌ Parser test failed!")
 
 
 if __name__ == "__main__":

@@ -56,14 +56,12 @@ class AudioCapture:
             raise ValueError(f"{device_name} appears to be a microphone input device")
 
         # Audio processing settings
-        # Audio processing settings
         self.sample_rate = 16000  # Whisper expects 16kHz
         self.channels = 1  # Mono audio
         self.chunk_duration = 30  # Restore original chunk duration
         self.min_audio_length = 3 * self.sample_rate  # Min 3 seconds
         self.energy_threshold = 0.001  # Restore original threshold
 
-        # Stream state management
         # Stream state management
         self.stream = None
         self.is_running = False
@@ -101,8 +99,8 @@ class AudioCapture:
         for i, device in enumerate(self.devices):
             name = device["name"].lower()
             max_input_channels = device["max_input_channels"]
-            logger.info(f"Device: {device['name']} (ID: {i}) has {max_input_channels} input channels")
-            logger.info(f"Device full info: {device}")
+            # logger.info(f"Device: {device['name']} (ID: {i}) has {max_input_channels} input channels")
+            # logger.info(f"Device full info: {device}")
 
             # Look for BlackHole with input capability
             if max_input_channels > 0 and "blackhole" in name:

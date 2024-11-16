@@ -13,12 +13,15 @@ from autocomply.logger import setup_logger
 logger = setup_logger(__name__)
 
 
+DEBUG_IMAGE = "./examples/quiz.png"
+
+
 class WindowCapture:
     def __init__(self, debug: bool = False):
         self.debug = debug
         self.options = CG.kCGWindowListOptionOnScreenOnly
         if debug:
-            self.debug_image = Image.open("./examples/quiz.png")
+            self.debug_image = Image.open(DEBUG_IMAGE)
 
     @staticmethod
     def select_window_interactive() -> Optional[Dict[str, Any]]:
@@ -136,7 +139,8 @@ if __name__ == "__main__":
     capture = WindowCapture()
     window_info = capture.select_window_interactive()
     if window_info:
-        output_path = os.path.expanduser("./scratch/window_capture.png")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.expanduser(f"./window_capture_{timestamp}.png")
         capture.capture_window(window_info, output_path)
     else:
         logger.error("No window selected")
