@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import subprocess
 import time
@@ -17,8 +18,6 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
-from transformers import AutoModelForCausalLM
-from ultralytics import YOLO
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
@@ -30,6 +29,7 @@ logger = setup_logger(__name__)
 
 MODEL_NAME = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 5
+USE_PARSER = False
 
 
 class State(TypedDict):
@@ -55,17 +55,22 @@ class ActionSystem:
         self.config = self._load_task_config(task_profile, instructions)
         self.debug = debug
 
-        # Initialize OmniParser models
-        try:
-            logger.info("Loading OmniParser models...")
-            self.yolo_model = YOLO("weights/icon_detect/best.pt")
-            processor = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
-            model = AutoModelForCausalLM.from_pretrained("weights/icon_caption_florence", trust_remote_code=True)
-            self.caption_model_processor = {"processor": processor, "model": model}
-            logger.info("OmniParser models loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load OmniParser models: {e}")
-            raise e
+        # Initialize placeholders for all models
+        self._yolo_model = None
+        self._florence_processor = None
+        self._florence_model = None
+
+        # # Initialize OmniParser models
+        # try:
+        #     logger.info("Loading OmniParser models...")
+        #     self.yolo_model = YOLO("weights/icon_detect/best.pt")
+        #     processor = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
+        #     model = AutoModelForCausalLM.from_pretrained("weights/icon_caption_florence", trust_remote_code=True)
+        #     self.caption_model_processor = {"processor": processor, "model": model}
+        #     logger.info("OmniParser models loaded successfully")
+        # except Exception as e:
+        #     logger.error(f"Failed to load OmniParser models: {e}")
+        #     raise e
 
         # Initialize components
         self.window_capture = WindowCapture(debug=debug)
@@ -88,6 +93,33 @@ class ActionSystem:
         # Initialize and compile the graph
         self.graph = self._build_graph()
         logger.info("Action system initialized")
+
+    @property
+    def yolo_model(self):
+        """Lazy load YOLO model only when needed"""
+        if self._yolo_model is None:
+            from ultralytics import YOLO
+
+            logger.info("Loading YOLO model...")
+            self._yolo_model = YOLO("weights/icon_detect/best.pt")
+        return self._yolo_model
+
+    @property
+    def florence_models(self):
+        """Lazy load Florence models only when needed"""
+        if self._florence_processor is None or self._florence_model is None:
+            from transformers import AutoModelForCausalLM
+
+            logger.info("Loading Florence models...")
+
+            self._florence_processor = AutoModelForCausalLM.from_pretrained(
+                "microsoft/Florence-2-base", trust_remote_code=True
+            )
+            self._florence_model = AutoModelForCausalLM.from_pretrained(
+                "weights/icon_caption_florence", trust_remote_code=True
+            )
+
+        return {"processor": self._florence_processor, "model": self._florence_model}
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -154,17 +186,16 @@ class ActionSystem:
 
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
-        workflow.add_node("analyze_inputs", self.analyze_inputs)
-        workflow.add_node("decide_action", self.decide_action)
+        # workflow.add_node("analyze_inputs", self.analyze_inputs)
+        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=USE_PARSER))
         workflow.add_node("execute_action", self.execute_action)
         workflow.add_node("end", lambda state: state)  # End node
 
         # Set entry point
         workflow.set_entry_point("capture_state")
 
-        # Add edges
-        workflow.add_edge("capture_state", "analyze_inputs")
-        workflow.add_edge("analyze_inputs", "decide_action")
+        # Add edge
+        workflow.add_edge("capture_state", "decide_action")
 
         # Conditional edge from decide_action
         workflow.add_conditional_edges(
@@ -211,22 +242,66 @@ class ActionSystem:
         self.current_state["action"] = "END"
         self.current_state["messages"].append(SystemMessage(content="Session terminated by user."))
 
-    # Define graph nodes
     def capture_state(self, state: State) -> State:
-        """Capture the current state (screenshot and audio)."""
+        """Capture the current state."""
         logger.info("Capturing state...")
 
+        # Capture screenshot
         screenshot = self.window_capture.capture_window(self.window_info)
-        audio_text = self.audio_capture.get_transcription() if self.audio_capture else None
-
         state["screenshot"] = screenshot
-        state["audio_text"] = audio_text
+
+        if USE_PARSER:
+            logger.info("Processing with OmniParser...")
+            img_buffer = BytesIO()
+            screenshot.save(img_buffer, format="PNG")
+            img_buffer.seek(0)
+
+            # Process screenshot with OmniParser
+            box_threshold = 0.05  # Default value; can be configurable
+            iou_threshold = 0.1  # Default value; can be configurable
+
+            ocr_bbox_rslt, _ = check_ocr_box(
+                img_buffer,
+                display_img=False,
+                output_bb_format="xyxy",
+                goal_filtering=None,
+                easyocr_args={"paragraph": False, "text_threshold": 0.9},
+                use_paddleocr=False,
+            )
+            text, ocr_bbox = ocr_bbox_rslt
+
+            dino_labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
+                img_buffer,
+                self.yolo_model,
+                BOX_THRESHOLD=box_threshold,
+                output_coord_in_ratio=True,
+                ocr_bbox=ocr_bbox,
+                draw_bbox_config={
+                    "text_scale": 0.8,
+                    "text_thickness": 2,
+                    "text_padding": 3,
+                    "thickness": 3,
+                },
+                caption_model_processor=self.florence_models,
+                ocr_text=text,
+                iou_threshold=iou_threshold,
+            )
+
+            # Decode the labeled image
+            labeled_image = Image.open(io.BytesIO(base64.b64decode(dino_labeled_img)))
+            state["labeled_image"] = labeled_image
+
+            # Update state with parsed elements
+            state["parsed_elements"] = {"parsed_content": parsed_content_list, "label_coordinates": label_coordinates}
+
+            logger.info("State captured and processed with OmniParser")
+        else:
+            logger.info("State captured without OmniParser")
+
         return state
 
-    def analyze_inputs(self, state: State) -> State:
-        """Analyze screenshot and return updated state."""
-        logger.info("Analyzing inputs...")
-
+    def analyze_raw_image(self, state: State) -> State:
+        """Analyze using raw screenshot with GPT-4V."""
         messages = state.get("messages", [])
 
         if state["screenshot"]:
@@ -241,33 +316,88 @@ class ActionSystem:
                             "type": "text",
                             "text": dedent(f"""
                                 New screenshot taken at {timestamp}.
-                                Focus on identifying any changes in:
-                                1) Button states (enabled/disabled),
-                                2) Video player status,
-                                3) New content appearance.
-                                What action should we take?
+                                What UI elements do you see and what action should we take?
                             """).strip(),
                         },
                     ]
                 )
             )
 
-            # Keep only last N messages to limit context size
-            if len(messages) > MAX_MESSAGES:
-                messages = messages[-MAX_MESSAGES:]
-
-            state["messages"] = messages
-            state["action"] = "ANALYZED"
+            state["messages"] = messages[-MAX_MESSAGES:]
             return state
+        return state
 
-        else:
-            logger.error("Failed to capture screenshot")
-            state["action"] = "WAIT"
+    def analyze_with_parser(self, state: State) -> State:
+        """Analyze using OmniParser structured data."""
+        messages = state.get("messages", [])
+        parsed_elements = state.get("parsed_elements", {})
+
+        if parsed_elements:
+            messages.append(
+                HumanMessage(
+                    content=dedent(f"""
+                        Detected UI elements:
+                        {parsed_elements['parsed_content']}
+                        
+                        What action should we take based on these elements?
+                    """).strip()
+                )
+            )
+
+            state["messages"] = messages[-MAX_MESSAGES:]
             return state
+        return state
 
-    def decide_action(self, state: State) -> State:
-        """Decide what action to take based on analysis."""
+    # def analyze_inputs(self, state: State) -> State:
+    #     """Analyze screenshot and return updated state."""
+    #     logger.info("Analyzing inputs...")
+
+    #     messages = state.get("messages", [])
+
+    #     if state["screenshot"]:
+    #         base64_image = self._encode_image(state["screenshot"])
+    #         timestamp = time.strftime("%H:%M:%S")
+
+    #         messages.append(
+    #             HumanMessage(
+    #                 content=[
+    #                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
+    #                     {
+    #                         "type": "text",
+    #                         "text": dedent(f"""
+    #                             New screenshot taken at {timestamp}.
+    #                             Focus on identifying any changes in:
+    #                             1) Button states (enabled/disabled),
+    #                             2) Video player status,
+    #                             3) New content appearance.
+    #                             What action should we take?
+    #                         """).strip(),
+    #                     },
+    #                 ]
+    #             )
+    #         )
+
+    #         # Keep only last N messages to limit context size
+    #         if len(messages) > MAX_MESSAGES:
+    #             messages = messages[-MAX_MESSAGES:]
+
+    #         state["messages"] = messages
+    #         state["action"] = "ANALYZED"
+    #         return state
+
+    #     else:
+    #         logger.error("Failed to capture screenshot")
+    #         state["action"] = "WAIT"
+    #         return state
+
+    def decide_action(self, state: State, use_parser: bool = True) -> State:
+        """Decide action based on specified analysis mode."""
         logger.info("Deciding action...")
+
+        if use_parser:
+            state = self.analyze_with_parser(state)
+        else:
+            state = self.analyze_raw_image(state)
 
         # Build the prompt
         actions_description = "\n".join(
