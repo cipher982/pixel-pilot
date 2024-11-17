@@ -1,6 +1,7 @@
 # from ultralytics import YOLO
 import base64
 import io
+import os
 from typing import List
 from typing import Tuple
 
@@ -19,6 +20,9 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from torchvision.ops import box_convert
 from torchvision.transforms import ToPILImage
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 reader = easyocr.Reader(["en"])
 # paddle_ocr = PaddleOCR(

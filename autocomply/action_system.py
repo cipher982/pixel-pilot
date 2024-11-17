@@ -39,6 +39,9 @@ class State(TypedDict):
     action: Optional[str]
     parameters: dict
     context: dict
+    labeled_img: Optional[str]  # base64 encoded image
+    label_coordinates: Optional[dict]
+    parsed_content_list: Optional[list]
 
 
 class ActionSystem:
@@ -275,8 +278,8 @@ class ActionSystem:
             box_threshold = 0.05
             iou_threshold = 0.1
 
-            dino_labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
-                screenshot_np,  # Pass numpy array instead of PIL Image
+            labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
+                screenshot_np,
                 self.yolo_model,
                 box_threshold=box_threshold,
                 output_coord_in_ratio=True,
@@ -292,13 +295,9 @@ class ActionSystem:
                 iou_threshold=iou_threshold,
             )
 
-            state.update(
-                {
-                    "label_coordinates": label_coordinates,
-                    "parsed_content_list": parsed_content_list,
-                    "labeled_img": dino_labeled_img,
-                }
-            )
+            state["labeled_img"] = labeled_img
+            state["label_coordinates"] = label_coordinates
+            state["parsed_content_list"] = parsed_content_list
 
         return state
 
@@ -332,22 +331,30 @@ class ActionSystem:
     def analyze_with_parser(self, state: State) -> State:
         """Analyze using OmniParser structured data."""
         messages = state.get("messages", [])
-        parsed_elements = state.get("parsed_elements", {})
+        parsed_content_list = state.get("parsed_content_list", [])
+        labeled_img = state.get("labeled_img")
 
-        if parsed_elements:
+        if labeled_img and parsed_content_list:
+            timestamp = time.strftime("%H:%M:%S")
             messages.append(
                 HumanMessage(
-                    content=dedent(f"""
-                        Detected UI elements:
-                        {parsed_elements['parsed_content']}
-                        
-                        What action should we take based on these elements?
-                    """).strip()
+                    content=[
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{labeled_img}"}},
+                        {
+                            "type": "text",
+                            "text": dedent(f"""
+                                New screenshot taken at {timestamp}.
+                                Detected UI elements:
+                                {chr(10).join(parsed_content_list)}
+                                
+                                What action should we take based on these elements?
+                            """).strip(),
+                        },
+                    ]
                 )
             )
 
             state["messages"] = messages[-MAX_MESSAGES:]
-            return state
         return state
 
     # def analyze_inputs(self, state: State) -> State:
