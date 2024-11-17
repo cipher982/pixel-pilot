@@ -1,5 +1,4 @@
 import base64
-import io
 import json
 import subprocess
 import time
@@ -9,6 +8,7 @@ from typing import Annotated
 from typing import Optional
 from typing import TypedDict
 
+import numpy as np
 import yaml
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -109,10 +109,11 @@ class ActionSystem:
         """Lazy load Florence models only when needed"""
         if self._florence_processor is None or self._florence_model is None:
             from transformers import AutoModelForCausalLM
+            from transformers import AutoProcessor
 
             logger.info("Loading Florence models...")
 
-            self._florence_processor = AutoModelForCausalLM.from_pretrained(
+            self._florence_processor = AutoProcessor.from_pretrained(
                 "microsoft/Florence-2-base", trust_remote_code=True
             )
             self._florence_model = AutoModelForCausalLM.from_pretrained(
@@ -229,7 +230,7 @@ class ActionSystem:
             logger.warning(f"Graph recursion limit reached: {e}")
             logger.info("Consider increasing recursion_limit if this is expected behavior")
         except Exception as e:
-            logger.error(f"Unexpected error in action system: {e}")
+            logger.error(f"Unexpected error in action system: {e}", exc_info=True)
         finally:
             self.cleanup()
 
@@ -255,16 +256,13 @@ class ActionSystem:
             from autocomply.utils import get_som_labeled_img
 
             logger.info("Processing with OmniParser...")
-            img_buffer = BytesIO()
-            screenshot.save(img_buffer, format="PNG")
-            img_buffer.seek(0)
 
-            # Process screenshot with OmniParser
-            box_threshold = 0.05  # Default value; can be configurable
-            iou_threshold = 0.1  # Default value; can be configurable
+            # Convert PIL Image to numpy array once
+            screenshot_np = np.array(screenshot)
 
+            # Process with OCR
             ocr_bbox_rslt, _ = check_ocr_box(
-                img_buffer,
+                screenshot_np,  # Pass numpy array
                 display_img=False,
                 output_bb_format="xyxy",
                 goal_filtering=None,
@@ -273,10 +271,14 @@ class ActionSystem:
             )
             text, ocr_bbox = ocr_bbox_rslt
 
+            # Process with object detection
+            box_threshold = 0.05
+            iou_threshold = 0.1
+
             dino_labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
-                img_buffer,
+                screenshot_np,  # Pass numpy array instead of PIL Image
                 self.yolo_model,
-                BOX_THRESHOLD=box_threshold,
+                box_threshold=box_threshold,
                 output_coord_in_ratio=True,
                 ocr_bbox=ocr_bbox,
                 draw_bbox_config={
@@ -290,16 +292,13 @@ class ActionSystem:
                 iou_threshold=iou_threshold,
             )
 
-            # Decode the labeled image
-            labeled_image = Image.open(io.BytesIO(base64.b64decode(dino_labeled_img)))
-            state["labeled_image"] = labeled_image
-
-            # Update state with parsed elements
-            state["parsed_elements"] = {"parsed_content": parsed_content_list, "label_coordinates": label_coordinates}
-
-            logger.info("State captured and processed with OmniParser")
-        else:
-            logger.info("State captured without OmniParser")
+            state.update(
+                {
+                    "label_coordinates": label_coordinates,
+                    "parsed_content_list": parsed_content_list,
+                    "labeled_img": dino_labeled_img,
+                }
+            )
 
         return state
 

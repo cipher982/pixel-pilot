@@ -100,12 +100,10 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
 
     for i in range(0, len(croped_pil_image), batch_size):
         batch = croped_pil_image[i : i + batch_size]
-        if model.device.type == "cuda":
-            inputs = processor(images=batch, text=[prompt] * len(batch), return_tensors="pt").to(
-                device=device, dtype=torch.float16
-            )
-        else:
-            inputs = processor(images=batch, text=[prompt] * len(batch), return_tensors="pt").to(device=device)
+
+        # Use original working code for now
+        inputs = processor(images=batch, text=[prompt] * len(batch), return_tensors="pt").to(device=device)
+
         if "florence" in model.config.name_or_path:
             generated_ids = model.generate(
                 input_ids=inputs["input_ids"],
@@ -312,16 +310,13 @@ def predict(model, image, caption, box_threshold, text_threshold):
     return boxes, logits, phrases
 
 
-def predict_yolo(model, image_path, box_threshold):
-    """Use huggingface model to replace the original model"""
-    # model = model['model']
-
+def predict_yolo(model, image_np, box_threshold):
+    """Use YOLO model to predict boxes on numpy array image"""
     result = model.predict(
-        source=image_path,
+        source=image_np,
         conf=box_threshold,
-        # iou=0.5, # default 0.7
     )
-    boxes = result[0].boxes.xyxy  # .tolist() # in pixel space
+    boxes = result[0].boxes.xyxy
     conf = result[0].boxes.conf
     phrases = [str(i) for i in range(len(boxes))]
 
@@ -329,9 +324,9 @@ def predict_yolo(model, image_path, box_threshold):
 
 
 def get_som_labeled_img(
-    img_path,
+    image,
     model=None,
-    BOX_TRESHOLD=0.01,
+    box_threshold=0.01,
     output_coord_in_ratio=False,
     ocr_bbox=None,
     text_scale=0.4,
@@ -343,25 +338,37 @@ def get_som_labeled_img(
     iou_threshold=0.9,
     prompt=None,
 ):
-    """ocr_bbox: list of xyxy format bbox"""
-    TEXT_PROMPT = "clickable buttons on the screen"
-    # BOX_TRESHOLD = 0.02 # 0.05/0.02 for web and 0.1 for mobile
-    TEXT_TRESHOLD = 0.01  # 0.9 # 0.01
-    image_source = Image.open(img_path).convert("RGB")
-    w, h = image_source.size
-    # import pdb; pdb.set_trace()
-    if False:  # TODO
-        xyxy, logits, phrases = predict(
-            model=model,
-            image=image_source,
-            caption=TEXT_PROMPT,
-            box_threshold=BOX_TRESHOLD,
-            text_threshold=TEXT_TRESHOLD,
-        )
+    # Convert to numpy array if PIL Image
+    if isinstance(image, Image.Image):
+        # Convert PIL image to RGB and then to numpy array
+        image = image.convert("RGB")
+        image_np = np.array(image)
     else:
-        xyxy, logits, phrases = predict_yolo(model=model, image_path=img_path, box_threshold=BOX_TRESHOLD)
+        image_np = image
+
+    # Ensure we have 3 channels RGB
+    if len(image_np.shape) == 3:
+        if image_np.shape[2] == 4:  # RGBA
+            image_source = image_np[:, :, :3]  # Drop alpha channel
+        elif image_np.shape[2] == 3:  # RGB or BGR
+            if image_np.dtype == np.uint8:  # Assuming BGR if uint8
+                image_source = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+            else:
+                image_source = image_np
+        else:
+            raise ValueError(f"Unexpected number of channels: {image_np.shape[2]}")
+    else:
+        raise ValueError("Image must be RGB/BGR/RGBA with 3 or 4 channels")
+
+    # Get dimensions
+    h, w = image_source.shape[:2]
+    xyxy, logits, phrases = predict_yolo(
+        model=model,
+        image_np=image_source,  # Pass RGB numpy array
+        box_threshold=box_threshold,
+    )
+
     xyxy = xyxy / torch.Tensor([w, h, w, h]).to(xyxy.device)
-    image_source = np.asarray(image_source)
     phrases = [str(i) for i in range(len(phrases))]
 
     # annotate the image with labels
@@ -445,7 +452,7 @@ def get_xywh_yolo(input):
 
 
 def check_ocr_box(
-    image_path, display_img=True, output_bb_format="xywh", goal_filtering=None, easyocr_args=None, use_paddleocr=False
+    image_np, display_img=True, output_bb_format="xywh", goal_filtering=None, easyocr_args=None, use_paddleocr=False
 ):
     if use_paddleocr:
         # result = paddle_ocr.ocr(image_path, cls=False)[0]
@@ -455,14 +462,13 @@ def check_ocr_box(
     else:  # EasyOCR
         if easyocr_args is None:
             easyocr_args = {}
-        result = reader.readtext(image_path, **easyocr_args)
+        result = reader.readtext(image_np, **easyocr_args)
         # print('goal filtering pred:', result[-5:])
         coord = [item[0] for item in result]
         text = [item[1] for item in result]
     # read the image using cv2
     if display_img:
-        opencv_img = cv2.imread(image_path)
-        opencv_img = cv2.cvtColor(opencv_img, cv2.COLOR_RGB2BGR)
+        opencv_img = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
         bb = []
         for item in coord:
             x, y, a, b = get_xywh(item)
