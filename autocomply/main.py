@@ -13,17 +13,20 @@ logger = setup_logger(__name__)
 @click.option("--debug", is_flag=True, help="Run in debug mode using test image")
 @click.option("--task-profile", "-t", help="Path to task profile YAML file")
 @click.option("--instructions", "-i", help="Override task instructions")
+@click.option("--use-parser", is_flag=True, help="Use parser to analyze inputs")
 def main(
     no_audio: bool = False,
     debug: bool = False,
     task_profile: Optional[str] = None,
     instructions: Optional[str] = None,
+    use_parser: bool = False,
 ):
     action_system = ActionSystem(
         task_profile=task_profile,
         instructions=instructions,
         no_audio=no_audio,
         debug=debug,
+        use_parser=use_parser,
     )
     action_system.run()
 

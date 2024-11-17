@@ -21,15 +21,13 @@ from PIL import Image
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
-from autocomply.utils import check_ocr_box
-from autocomply.utils import get_som_labeled_img
 from autocomply.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
 MODEL_NAME = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 5
-USE_PARSER = False
+# USE_PARSER = False
 
 
 class State(TypedDict):
@@ -50,10 +48,12 @@ class ActionSystem:
         instructions: Optional[str] = None,
         no_audio: bool = False,
         debug: bool = False,
+        use_parser: bool = False,
     ):
         self.llm = ChatOpenAI(model=MODEL_NAME)
         self.config = self._load_task_config(task_profile, instructions)
         self.debug = debug
+        self.use_parser = use_parser
 
         # Initialize placeholders for all models
         self._yolo_model = None
@@ -187,7 +187,7 @@ class ActionSystem:
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
         # workflow.add_node("analyze_inputs", self.analyze_inputs)
-        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=USE_PARSER))
+        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=self.use_parser))
         workflow.add_node("execute_action", self.execute_action)
         workflow.add_node("end", lambda state: state)  # End node
 
@@ -250,7 +250,10 @@ class ActionSystem:
         screenshot = self.window_capture.capture_window(self.window_info)
         state["screenshot"] = screenshot
 
-        if USE_PARSER:
+        if self.use_parser:
+            from autocomply.utils import check_ocr_box
+            from autocomply.utils import get_som_labeled_img
+
             logger.info("Processing with OmniParser...")
             img_buffer = BytesIO()
             screenshot.save(img_buffer, format="PNG")
@@ -547,6 +550,9 @@ class ActionSystem:
 
     def test_parser(self, image_path: str) -> None:
         """Simple test method to verify OmniParser integration."""
+        from autocomply.utils import check_ocr_box
+        from autocomply.utils import get_som_labeled_img
+
         try:
             # Use existing utils functions
             ocr_bbox_rslt, _ = check_ocr_box(
