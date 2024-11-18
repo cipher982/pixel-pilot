@@ -11,6 +11,7 @@ from typing import TypedDict
 from typing import Union
 
 import numpy as np
+import torch
 import yaml
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -69,6 +70,10 @@ class ActionSystem:
         self._florence_processor = None
         self._florence_model = None
 
+        # Initialize device
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        logger.info(f"Using device: {self.device}")
+
         # Initialize components
         self.window_capture = WindowCapture(debug=debug)
         self.audio_capture = None if (no_audio or debug) else AudioCapture()
@@ -117,7 +122,7 @@ class ActionSystem:
             logger.info("Florence processor loaded successfully")
             self._florence_model = AutoModelForCausalLM.from_pretrained(
                 "weights/icon_caption_florence", trust_remote_code=True
-            )
+            ).to(self.device)
             logger.info("Florence caption model loaded successfully")
         return {"processor": self._florence_processor, "model": self._florence_model}
 
