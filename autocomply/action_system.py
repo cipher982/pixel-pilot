@@ -241,14 +241,6 @@ class ActionSystem:
 
         return workflow.compile()
 
-    # def should_continue(self, state: State) -> str:
-    #     """Determine whether to proceed to execute_action or end."""
-    #     action = state.get("action")
-    #     if action == "END":
-    #         return "end"
-    #     else:
-    #         return "execute_action"
-
     def run(self) -> None:
         """Run the action system's graph."""
         if not self.setup():
@@ -508,7 +500,7 @@ class ActionSystem:
                     logger.info(f"Using absolute coordinates: ({abs_x}, {abs_y})")
 
                     # Pre-click delay for visibility
-                    time.sleep(0.5)
+                    time.sleep(0.2)
                     success = self._click_at_coordinates(abs_x, abs_y)
                     logger.info(f"Click action result: {success}")
 
@@ -516,11 +508,11 @@ class ActionSystem:
                         raise RuntimeError("Click action failed")
 
                     # Post-click delay
-                    time.sleep(0.5)
+                    time.sleep(0.2)
 
                 case "wait":
                     logger.info("Waiting for content...")
-                    time.sleep(parameters.get("duration", 2.0))
+                    time.sleep(1.0)
 
                 case "end":
                     logger.info("Task completed")
@@ -588,7 +580,7 @@ class ActionSystem:
             subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
 
             # Brief pause to let window focus take effect
-            time.sleep(0.5)
+            time.sleep(0.2)
 
             # Now perform the click
             pyautogui.moveTo(x, y, duration=duration)
