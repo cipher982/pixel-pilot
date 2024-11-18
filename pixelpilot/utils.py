@@ -17,7 +17,7 @@ from PIL import Image
 from torchvision.ops import box_convert
 from torchvision.transforms import ToPILImage
 
-from autocomply.logger import setup_logger
+from pixelpilot.logger import setup_logger
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -222,7 +222,7 @@ def annotate(
 
     labels = [f"{phrase}" for phrase in range(boxes.shape[0])]
 
-    from autocomply.util.box_annotator import BoxAnnotator
+    from pixelpilot.util.box_annotator import BoxAnnotator
 
     box_annotator = BoxAnnotator(
         text_scale=text_scale, text_padding=text_padding, text_thickness=text_thickness, thickness=thickness

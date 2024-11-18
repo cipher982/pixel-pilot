@@ -2,8 +2,8 @@ from typing import Optional
 
 import click
 
-from autocomply.action_system import ActionSystem
-from autocomply.logger import setup_logger
+from pixelpilot.action_system import ActionSystem
+from pixelpilot.logger import setup_logger
 
 logger = setup_logger(__name__)
 

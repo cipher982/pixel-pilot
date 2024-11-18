@@ -1,6 +1,6 @@
 import logging
 
-from autocomply.action_system import ActionSystem
+from pixelpilot.action_system import ActionSystem
 
 logging.basicConfig(level=logging.INFO)
 

@@ -25,10 +25,10 @@ from PIL import Image
 from pydantic import BaseModel
 from pydantic import Field
 
-from autocomply.audio_capture import AudioCapture
-from autocomply.logger import setup_logger
-from autocomply.utils import log_runtime
-from autocomply.window_capture import WindowCapture
+from pixelpilot.audio_capture import AudioCapture
+from pixelpilot.logger import setup_logger
+from pixelpilot.utils import log_runtime
+from pixelpilot.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
@@ -255,8 +255,8 @@ class ActionSystem:
         state["screenshot"] = screenshot
 
         if self.use_parser:
-            from autocomply.utils import check_ocr_box
-            from autocomply.utils import get_som_labeled_img
+            from pixelpilot.utils import check_ocr_box
+            from pixelpilot.utils import get_som_labeled_img
 
             logger.info("Processing with OmniParser...")
 
@@ -573,8 +573,8 @@ class ActionSystem:
 
     def test_parser(self, image_path: str) -> None:
         """Simple test method to verify OmniParser integration."""
-        from autocomply.utils import check_ocr_box
-        from autocomply.utils import get_som_labeled_img
+        from pixelpilot.utils import check_ocr_box
+        from pixelpilot.utils import get_som_labeled_img
 
         try:
             # Use existing utils functions

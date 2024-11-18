@@ -8,7 +8,7 @@ import Quartz
 import Quartz.CoreGraphics as CG
 from PIL import Image
 
-from autocomply.logger import setup_logger
+from pixelpilot.logger import setup_logger
 
 logger = setup_logger(__name__)
 

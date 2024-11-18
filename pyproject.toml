@@ -1,7 +1,7 @@
 [project]
-name = "autocomply"
+name = "PixelPilot"
 version = "0.1.0"
-description = "AI agent for completing your workplace training courses"
+description = "AI agent for completing computer tasks"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

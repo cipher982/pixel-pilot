@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from rich.console import Console
 
-from autocomply.logger import setup_logger
+from pixelpilot.logger import setup_logger
 
 logger = setup_logger(__name__)
 
