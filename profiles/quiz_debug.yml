@@ -10,7 +10,8 @@ schema:
   properties:
     action:
       type: "string"
-      enum: ["click", "wait", "end"]
+      enum: ["click", "wait", "END"]
+      description: "Action to take. Must be exactly 'click', 'wait', or 'END'"
     description:
       type: "string"
     parameters:
