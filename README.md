@@ -1,4 +1,4 @@
-# auto-comply
+# pixel-pilot
 AI agent for completing computer tasks.
 
 ## Project Overview
