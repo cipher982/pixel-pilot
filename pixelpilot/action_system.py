@@ -457,7 +457,7 @@ class ActionSystem:
                         abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
 
                         time.sleep(0.5)
-                        if not self._click_at_coordinates(abs_x, abs_y):
+                        if not self._click_at_coordinates(abs_x, abs_y, duration=0.5):
                             raise RuntimeError("Click action failed")
                         time.sleep(0.5)
 
@@ -496,7 +496,7 @@ class ActionSystem:
 
         return int(abs_x), int(abs_y)
 
-    def _click_at_coordinates(self, x: int, y: int, duration: float = 1.0) -> bool:
+    def _click_at_coordinates(self, x: int, y: int, duration: float) -> bool:
         """Move mouse smoothly to coordinates and click using pyautogui."""
         try:
             import pyautogui
