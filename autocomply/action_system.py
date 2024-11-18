@@ -27,6 +27,7 @@ from pydantic import create_model
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
+from autocomply.utils import log_runtime
 from autocomply.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
@@ -40,6 +41,7 @@ class State(TypedDict):
     """Define the state schema and reducers."""
 
     messages: Annotated[list, add_messages]
+    # action_queue: list[dict]
     screenshot: Optional[Image.Image]
     audio_text: Optional[str]
     action: Optional[str]
@@ -274,6 +276,7 @@ class ActionSystem:
         self.current_state["action"] = "END"
         self.current_state["messages"].append(SystemMessage(content="Session terminated by user."))
 
+    @log_runtime
     def capture_state(self, state: State) -> State:
         """Capture the current state."""
         logger.info("Capturing state...")
@@ -359,6 +362,7 @@ class ActionSystem:
             return state
         return state
 
+    @log_runtime
     def analyze_with_parser(self, state: State) -> State:
         """Analyze using OmniParser structured data."""
         logger.info("Analyzing with parser...")
@@ -399,6 +403,7 @@ class ActionSystem:
         state["messages"] = messages[-MAX_MESSAGES:]
         return state
 
+    @log_runtime
     def decide_action(self, state: State, use_parser: bool = True) -> State:
         """Decide action based on specified analysis mode."""
         logger.info("Deciding action...")
@@ -465,6 +470,7 @@ class ActionSystem:
             state["action"] = "END"  # Fail safe to END
             return state
 
+    @log_runtime
     def execute_action(self, state: State) -> State:
         """Execute the decided action with improved handling and feedback."""
         logger.info("Executing action...")

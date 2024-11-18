@@ -1,30 +1,30 @@
-# from ultralytics import YOLO
 import base64
 import io
 import os
+import time
+from functools import wraps
 from typing import List
 from typing import Tuple
 
-# utility function
 import cv2
 import easyocr
 import numpy as np
 import supervision as sv
 import torch
 import torchvision.transforms as T
-
-# %matplotlib inline
 from matplotlib import pyplot as plt
-
-# from paddleocr import PaddleOCR
 from PIL import Image
 from torchvision.ops import box_convert
 from torchvision.transforms import ToPILImage
+
+from autocomply.logger import setup_logger
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 
+
+logger = setup_logger(__name__)
 
 reader = easyocr.Reader(["en"])
 # paddle_ocr = PaddleOCR(
@@ -37,6 +37,18 @@ reader = easyocr.Reader(["en"])
 #     det_db_score_mode="slow",  # improves accuracy
 #     rec_batch_num=1024,
 # )
+
+
+def log_runtime(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        duration = time.perf_counter() - start
+        logger.info(f"{func.__name__} took {duration:.2f} seconds")
+        return result
+
+    return wrapper
 
 
 def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2-opt-2.7b", device=None):
@@ -70,6 +82,7 @@ def get_yolo_model(model_path):
     return model
 
 
+@log_runtime
 @torch.inference_mode()
 def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_model_processor, prompt=None):
     to_pil = ToPILImage()
@@ -125,6 +138,7 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
     return generated_texts
 
 
+@log_runtime
 def get_parsed_content_icon_phi3v(filtered_boxes, ocr_bbox, image_source, caption_model_processor):
     to_pil = ToPILImage()
     if ocr_bbox:
@@ -182,6 +196,7 @@ def get_parsed_content_icon_phi3v(filtered_boxes, ocr_bbox, image_source, captio
     return generated_texts
 
 
+@log_runtime
 def remove_overlap(boxes, iou_threshold, ocr_bbox=None):
     assert ocr_bbox is None or isinstance(ocr_bbox, List)
 
@@ -228,6 +243,7 @@ def remove_overlap(boxes, iou_threshold, ocr_bbox=None):
     return torch.tensor(filtered_boxes)
 
 
+@log_runtime
 def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
     transform = T.Compose(
         [
@@ -242,6 +258,7 @@ def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
     return image, image_transformed
 
 
+@log_runtime
 def annotate(
     image_source: np.ndarray,
     boxes: torch.Tensor,
@@ -287,6 +304,7 @@ def annotate(
     return annotated_frame, label_coordinates
 
 
+@log_runtime
 def predict(model, image, caption, box_threshold, text_threshold):
     """Use huggingface model to replace the original model"""
     model, processor = model["model"], model["processor"]
@@ -307,6 +325,7 @@ def predict(model, image, caption, box_threshold, text_threshold):
     return boxes, logits, phrases
 
 
+@log_runtime
 def predict_yolo(model, image_np, box_threshold):
     """Use YOLO model to predict boxes on numpy array image"""
     result = model.predict(
@@ -320,6 +339,7 @@ def predict_yolo(model, image_np, box_threshold):
     return boxes, conf, phrases
 
 
+@log_runtime
 def get_som_labeled_img(
     image,
     model=None,
@@ -448,6 +468,7 @@ def get_xywh_yolo(input):
     return x, y, w, h
 
 
+@log_runtime
 def check_ocr_box(
     image_np, display_img=True, output_bb_format="xywh", goal_filtering=None, easyocr_args=None, use_paddleocr=False
 ):
