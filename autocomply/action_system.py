@@ -1,12 +1,14 @@
 import base64
-import json
 import subprocess
 import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Annotated
+from typing import Literal
 from typing import Optional
+from typing import Type
 from typing import TypedDict
+from typing import Union
 
 import numpy as np
 import yaml
@@ -15,9 +17,12 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
+from langgraph.graph import END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
+from pydantic import BaseModel
+from pydantic import create_model
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
@@ -53,8 +58,9 @@ class ActionSystem:
         debug: bool = False,
         use_parser: bool = False,
     ):
-        self.llm = ChatOpenAI(model=MODEL_NAME)
         self.config = self._load_task_config(task_profile, instructions)
+        self.response_model = self._create_pydantic_model(self.config)
+        self.llm = ChatOpenAI(model=MODEL_NAME).with_structured_output(self.response_model)
         self.debug = debug
         self.use_parser = use_parser
 
@@ -62,18 +68,6 @@ class ActionSystem:
         self._yolo_model = None
         self._florence_processor = None
         self._florence_model = None
-
-        # # Initialize OmniParser models
-        # try:
-        #     logger.info("Loading OmniParser models...")
-        #     self.yolo_model = YOLO("weights/icon_detect/best.pt")
-        #     processor = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
-        #     model = AutoModelForCausalLM.from_pretrained("weights/icon_caption_florence", trust_remote_code=True)
-        #     self.caption_model_processor = {"processor": processor, "model": model}
-        #     logger.info("OmniParser models loaded successfully")
-        # except Exception as e:
-        #     logger.error(f"Failed to load OmniParser models: {e}")
-        #     raise e
 
         # Initialize components
         self.window_capture = WindowCapture(debug=debug)
@@ -105,6 +99,7 @@ class ActionSystem:
 
             logger.info("Loading YOLO model...")
             self._yolo_model = YOLO("weights/icon_detect/best.pt")
+            logger.info("YOLO model loaded successfully")
         return self._yolo_model
 
     @property
@@ -119,10 +114,11 @@ class ActionSystem:
             self._florence_processor = AutoProcessor.from_pretrained(
                 "microsoft/Florence-2-base", trust_remote_code=True
             )
+            logger.info("Florence processor loaded successfully")
             self._florence_model = AutoModelForCausalLM.from_pretrained(
                 "weights/icon_caption_florence", trust_remote_code=True
             )
-
+            logger.info("Florence caption model loaded successfully")
         return {"processor": self._florence_processor, "model": self._florence_model}
 
     def setup(self) -> bool:
@@ -185,39 +181,66 @@ class ActionSystem:
 
         return default_config
 
+    def _create_pydantic_model(self, config: dict) -> Type[BaseModel]:
+        """Convert YAML schema to Pydantic model dynamically"""
+        schema = config["schema"]
+
+        # Create parameter models from oneOf schemas
+        parameter_schemas = schema["properties"]["parameters"]["oneOf"]
+        parameter_models = []
+
+        for param_schema in parameter_schemas:
+            fields = {}
+            # Add fields only if properties exist
+            if "properties" in param_schema:
+                for field_name, field_info in param_schema["properties"].items():
+                    field_type = str if field_info["type"] == "string" else float
+                    # Make all fields optional with None as default
+                    fields[field_name] = (Optional[field_type], None)
+
+            # Create model even if no fields (for empty parameters)
+            param_model = create_model(f"Parameters_{len(parameter_models)}", **fields)
+            parameter_models.append(param_model)
+
+        # Build main model fields
+        fields = {
+            "action": (Literal.__getitem__(tuple(schema["properties"]["action"]["enum"])), ...),
+            "description": (str, ...),
+            "parameters": (Union.__getitem__(tuple(parameter_models)), {}),
+        }
+        pydantic_model = create_model("ActionResponse", **fields)
+        logger.info(f"Pydantic model created: {pydantic_model}")
+        return pydantic_model
+
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(State)
 
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
-        # workflow.add_node("analyze_inputs", self.analyze_inputs)
         workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=self.use_parser))
         workflow.add_node("execute_action", self.execute_action)
-        workflow.add_node("end", lambda state: state)  # End node
 
         # Set entry point
         workflow.set_entry_point("capture_state")
 
-        # Add edge
+        # Add edges with END check
         workflow.add_edge("capture_state", "decide_action")
-
-        # Conditional edge from decide_action
         workflow.add_conditional_edges(
-            "decide_action", self.should_continue, {"execute_action": "execute_action", "end": "end"}
+            "decide_action",
+            lambda state: "end" if state["action"] == "END" else "execute",
+            {"end": END, "execute": "execute_action"},
         )
-
-        # Edge from execute_action back to capture_state
         workflow.add_edge("execute_action", "capture_state")
 
         return workflow.compile()
 
-    def should_continue(self, state: State) -> str:
-        """Determine whether to proceed to execute_action or end."""
-        action = state.get("action")
-        if action == "END":
-            return "end"
-        else:
-            return "execute_action"
+    # def should_continue(self, state: State) -> str:
+    #     """Determine whether to proceed to execute_action or end."""
+    #     action = state.get("action")
+    #     if action == "END":
+    #         return "end"
+    #     else:
+    #         return "execute_action"
 
     def run(self) -> None:
         """Run the action system's graph."""
@@ -264,6 +287,7 @@ class ActionSystem:
             screenshot_np = np.array(screenshot)
 
             # Process with OCR
+            logger.info("Checking OCR box...")
             ocr_bbox_rslt, _ = check_ocr_box(
                 screenshot_np,  # Pass numpy array
                 display_img=False,
@@ -273,11 +297,13 @@ class ActionSystem:
                 use_paddleocr=False,
             )
             text, ocr_bbox = ocr_bbox_rslt
+            logger.info(f"OCR text: {text}")
 
             # Process with object detection
             box_threshold = 0.05
             iou_threshold = 0.1
 
+            logger.info("Getting labeled image...")
             labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
                 screenshot_np,
                 self.yolo_model,
@@ -294,7 +320,7 @@ class ActionSystem:
                 ocr_text=text,
                 iou_threshold=iou_threshold,
             )
-
+            logger.info("Labeled image obtained successfully")
             state["labeled_img"] = labeled_img
             state["label_coordinates"] = label_coordinates
             state["parsed_content_list"] = parsed_content_list
@@ -330,16 +356,24 @@ class ActionSystem:
 
     def analyze_with_parser(self, state: State) -> State:
         """Analyze using OmniParser structured data."""
+        logger.info("Analyzing with parser...")
         messages = state.get("messages", [])
         parsed_content_list = state.get("parsed_content_list", [])
         labeled_img = state.get("labeled_img")
 
         if labeled_img and parsed_content_list:
+            # Decode base64 string back to image, compress, then re-encode
+            img_data = base64.b64decode(labeled_img)
+            img = Image.open(BytesIO(img_data))
+
+            # Get compressed base64 string
+            compressed_base64 = self._encode_image(img, max_size=1000)
+
             timestamp = time.strftime("%H:%M:%S")
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{labeled_img}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
                         {
                             "type": "text",
                             "text": dedent(f"""
@@ -353,51 +387,12 @@ class ActionSystem:
                     ]
                 )
             )
+        else:
+            raise ValueError("No labeled image or parsed content list found")
 
-            state["messages"] = messages[-MAX_MESSAGES:]
+        logger.info("Analysis with parser complete")
+        state["messages"] = messages[-MAX_MESSAGES:]
         return state
-
-    # def analyze_inputs(self, state: State) -> State:
-    #     """Analyze screenshot and return updated state."""
-    #     logger.info("Analyzing inputs...")
-
-    #     messages = state.get("messages", [])
-
-    #     if state["screenshot"]:
-    #         base64_image = self._encode_image(state["screenshot"])
-    #         timestamp = time.strftime("%H:%M:%S")
-
-    #         messages.append(
-    #             HumanMessage(
-    #                 content=[
-    #                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
-    #                     {
-    #                         "type": "text",
-    #                         "text": dedent(f"""
-    #                             New screenshot taken at {timestamp}.
-    #                             Focus on identifying any changes in:
-    #                             1) Button states (enabled/disabled),
-    #                             2) Video player status,
-    #                             3) New content appearance.
-    #                             What action should we take?
-    #                         """).strip(),
-    #                     },
-    #                 ]
-    #             )
-    #         )
-
-    #         # Keep only last N messages to limit context size
-    #         if len(messages) > MAX_MESSAGES:
-    #             messages = messages[-MAX_MESSAGES:]
-
-    #         state["messages"] = messages
-    #         state["action"] = "ANALYZED"
-    #         return state
-
-    #     else:
-    #         logger.error("Failed to capture screenshot")
-    #         state["action"] = "WAIT"
-    #         return state
 
     def decide_action(self, state: State, use_parser: bool = True) -> State:
         """Decide action based on specified analysis mode."""
@@ -434,96 +429,180 @@ class ActionSystem:
         messages = [system_message] + state.get("messages", [])
 
         try:
-            response = self.llm.invoke(messages, response_format={"type": "json_object"}).content
-            response = json.loads(response)
-            logger.info(f"Decision: {response}")
+            response = self.llm.invoke(messages)
+            action = response.action.lower()
 
-            # Add AI's response to messages
+            # Early return for END action
+            if action == "end":
+                logger.info("END action received - terminating")
+                state["action"] = "END"
+                state["parameters"] = {}
+                state["messages"].append(AIMessage(content=f"Decision: {response.description} -> Action: END"))
+                return state
+
+            # Continue processing for other actions
+            state["action"] = action
+            if response.parameters and hasattr(response.parameters, "model_dump"):
+                params = response.parameters.model_dump(exclude_none=True, exclude_unset=True)
+                state["parameters"] = params if params else {}
+            else:
+                state["parameters"] = {}
+
             state["messages"].append(
-                AIMessage(content=f"Decision: {response['description']} -> Action: {response['action']}")
+                AIMessage(content=f"Decision: {response.description} -> Action: {state['action']}")
             )
 
-            state["action"] = response["action"]
-            state["parameters"] = response.get("parameters", {})
+            logger.info(f"Decided action: {state['action']} with parameters: {state['parameters']}")
             return state
 
         except Exception as e:
-            logger.error(f"Error in decide_action: {e}")
-            state["messages"].append(SystemMessage(content=f"Error occurred: {str(e)}. Defaulting to WAIT action."))
-            state["action"] = "WAIT"
+            logger.error(f"Action decision failed: {str(e)}")
+            state["action"] = "END"  # Fail safe to END
             return state
 
     def execute_action(self, state: State) -> State:
-        """Execute the decided action."""
-        action = state["action"]
-        context = state.get("context", {})
+        """Execute the decided action with improved handling and feedback."""
+        logger.info("Executing action...")
+        action = state.get("action", "").lower()
+
+        if action == "end":
+            logger.info("END action received - terminating")
+            state["action"] = "END"
+            return state
+
         parameters = state.get("parameters", {})
+        context = state.get("context", {})
 
-        logger.info(f"Executing action: {action}")
-
-        if action == "WAIT":
-            logger.info("Action is WAIT, waiting for a while.")
-            time.sleep(2)  # Adjust as needed
-            # After waiting, reset action to None
-            state["action"] = None
-            return state
-
-        if action == "END":
-            logger.info("Action is END, task is complete.")
-            # Optionally, perform any cleanup or final actions here.
-            return state  # The graph will proceed to the 'end' node.
-
-        if action is None:
-            logger.info("No action to execute.")
-            return state
+        logger.info(f"Executing action: {action} with parameters: {parameters}")
 
         try:
-            action_config = self.config["actions"].get(action.lower())
-            if not action_config:
-                logger.error(f"Unknown action: {action}")
+            match action:
+                case "click":
+                    element_id = parameters.get("elementId") or parameters.get("element_id")
+                    if element_id is not None:
+                        element_id = str(element_id)
+                        if element_id not in state["label_coordinates"]:
+                            raise ValueError(f"Invalid element_id: {element_id}")
+                    else:
+                        raise ValueError("No element_id provided in parameters")
+                    logger.info(f"Using element_id: {element_id}")
+
+                    rel_coords = state["label_coordinates"][element_id]
+                    logger.info(f"Found relative coordinates: {rel_coords}")
+
+                    # Calculate center point
+                    rel_x = rel_coords[0] + (rel_coords[2] / 2)
+                    rel_y = rel_coords[1] + (rel_coords[3] / 2)
+                    abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
+                    logger.info(f"Using absolute coordinates: ({abs_x}, {abs_y})")
+
+                    # Pre-click delay for visibility
+                    time.sleep(0.5)
+                    success = self._click_at_coordinates(abs_x, abs_y)
+                    logger.info(f"Click action result: {success}")
+
+                    if not success:
+                        raise RuntimeError("Click action failed")
+
+                    # Post-click delay
+                    time.sleep(0.5)
+
+                case "wait":
+                    logger.info("Waiting for content...")
+                    time.sleep(parameters.get("duration", 2.0))
+
+                case "end":
+                    logger.info("Task completed")
+                    state["action"] = "END"
+                    return state
+
+                case "type" if "text" in parameters:
+                    # Optional: Implement text input if needed
+                    text = parameters["text"]
+                    logger.info(f"Typing text: {text}")
+                    # TODO: Implement typing mechanism
+                    pass
+
+                case _:
+                    raise ValueError(f"Unknown action: {action}")
+
+            # Update context with successful action
+            context["last_action"] = action
+            state["context"] = context
+
+            # Only reset action for non-end actions
+            if action != "end":
                 state["action"] = None
-                return state
 
-            if action_config["keys"]:
-                window_info = context.get("window_info")
-                if not window_info:
-                    logger.error("No window info available")
-                    state["action"] = None
-                    return state
-
-                raw_keys = action_config["keys"]
-
-                # Handle both dict and direct value parameters
-                param_value = parameters.get("answer") if isinstance(parameters, dict) else parameters
-                processed_keys = [str(param_value) if key == "${answer}" else key for key in raw_keys]
-
-                logger.info(f"Sending keys: {processed_keys}")
-                success = self._send_keys_to_window(processed_keys)
-                if not success:
-                    logger.error("Failed to send keystrokes")
-                    state["action"] = None
-                    return state
-
-                logger.info(f"Keystrokes sent successfully: {'+'.join(processed_keys)}")
-                time.sleep(1.5)
-            else:
-                # Handle other actions that may not involve keys
-                pass
-        except Exception as e:
-            logger.error(f"Error executing action {action}: {e}")
-            state["action"] = None
+            logger.info("Action executed successfully")
             return state
 
-        context["last_action"] = action
-        state["context"] = context
-        state["action"] = None
-        return state
+        except Exception as e:
+            logger.error(f"Action execution failed: {str(e)}")
+            # Update state to reflect failure
+            state["action"] = None
+            state["context"] = {**context, "last_error": str(e), "last_failed_action": action}
+            return state
 
     # Helper methods
-    def _encode_image(self, image: Image.Image) -> str:
-        """Encode image to base64 string."""
+    def _convert_relative_to_absolute(self, rel_x: float, rel_y: float) -> tuple[int, int]:
+        """Convert relative coordinates to absolute screen coordinates."""
+        window_bounds = self.current_state["context"]["window_info"]["kCGWindowBounds"]
+        window_x = window_bounds["X"]
+        window_y = window_bounds["Y"]
+        window_width = window_bounds["Width"]
+        window_height = window_bounds["Height"]
+
+        abs_x = window_x + (rel_x * window_width)
+        abs_y = window_y + (rel_y * window_height)
+
+        return int(abs_x), int(abs_y)
+
+    def _click_at_coordinates(self, x: int, y: int, duration: float = 1.0) -> bool:
+        """Move mouse smoothly to coordinates and click using pyautogui."""
+        try:
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+
+            # First, ensure window is focused using AppleScript
+            window_info = self.current_state["context"]["window_info"]
+            script = f"""
+                tell application "System Events"
+                    tell process "{window_info['kCGWindowOwnerName']}"
+                        set frontmost to true
+                    end tell
+                end tell
+            """
+            subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+
+            # Brief pause to let window focus take effect
+            time.sleep(0.5)
+
+            # Now perform the click
+            pyautogui.moveTo(x, y, duration=duration)
+            pyautogui.click()
+
+            logger.info(f"Clicked at ({x}, {y})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to click: {str(e)}")
+            return False
+
+    def _encode_image(self, image: Image.Image, max_size: int = 800) -> str:
+        """Encode screenshot to base64 string with PNG optimization."""
+        img = image.copy()
+
+        # Resize if larger than max_size
+        if max(img.size) > max_size:
+            ratio = max_size / max(img.size)
+            new_size = tuple(int(dim * ratio) for dim in img.size)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        # Convert to PNG with optimization
         buffered = BytesIO()
-        image.save(buffered, format="PNG")
+        img.save(buffered, format="PNG", optimize=True)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:

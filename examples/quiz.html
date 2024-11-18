@@ -50,12 +50,12 @@
             position: relative;
         }
 
-        .option::before {
+        /* .option::before {
             content: attr(data-key);
             position: absolute;
             left: 10px;
             color: #666;
-        }
+        } */
 
         .option:hover, 
         .option:focus {
@@ -69,30 +69,30 @@
         <div class="question-container active" data-question="1">
             <div class="question-text">What is the capital of France?</div>
             <div class="options">
-                <div class="option" data-key="1" tabindex="0">London</div>
-                <div class="option" data-key="2" tabindex="0">Berlin</div>
-                <div class="option" data-key="3" tabindex="0">Paris</div>
-                <div class="option" data-key="4" tabindex="0">Madrid</div>
+                <div class="option"tabindex="0">London</div>
+                <div class="option" tabindex="0">Berlin</div>
+                <div class="option" tabindex="0">Paris</div>
+                <div class="option" tabindex="0">Madrid</div>
             </div>
         </div>
 
         <div class="question-container" data-question="2">
             <div class="question-text">Which planet is known as the Red Planet?</div>
             <div class="options">
-                <div class="option" data-key="1" tabindex="0">Venus</div>
-                <div class="option" data-key="2" tabindex="0">Mars</div>
-                <div class="option" data-key="3" tabindex="0">Jupiter</div>
-                <div class="option" data-key="4" tabindex="0">Saturn</div>
+                <div class="option" tabindex="0">Venus</div>
+                <div class="option" tabindex="0">Mars</div>
+                <div class="option" tabindex="0">Jupiter</div>
+                <div class="option" tabindex="0">Saturn</div>
             </div>
         </div>
 
         <div class="question-container" data-question="3">
             <div class="question-text">What is 2 + 2?</div>
             <div class="options">
-                <div class="option" data-key="1" tabindex="0">3</div>
-                <div class="option" data-key="2" tabindex="0">4</div>
-                <div class="option" data-key="3" tabindex="0">5</div>
-                <div class="option" data-key="4" tabindex="0">6</div>
+                <div class="option" tabindex="0">3</div>
+                <div class="option" tabindex="0">4</div>
+                <div class="option" tabindex="0">5</div>
+                <div class="option" tabindex="0">6</div>
             </div>
         </div>
 
@@ -114,14 +114,14 @@
             init() {
                 // Add click and keyboard handlers to options
                 document.querySelectorAll(".option").forEach(option => {
-                    option.addEventListener("click", this.handleAnswer);
-                    option.addEventListener("keydown", (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            this.handleAnswer.call(option);
-                        }
-                    });
+                option.addEventListener("click", this.handleAnswer);
+                option.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        this.handleAnswer.call(option);
+                    }
                 });
+            });
 
                 // Add number key support
                 document.addEventListener("keydown", (e) => {

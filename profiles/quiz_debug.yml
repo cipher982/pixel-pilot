@@ -1,14 +1,36 @@
 name: "Quiz Navigation Profile"
 instructions: |
-  Navigate through quiz questions by pressing the number key 
-  that corresponds to the correct answer (1-4).
-  Each option is clearly labeled with its number.
+  You are an AI assistant taking a quiz. For each question:
+  1. Find the question text (usually labeled as "Text Box ID X")
+  2. Find the correct answer among the options
+  3. Click the correct answer
+
+schema:
+  type: "object"
+  properties:
+    action:
+      type: "string"
+      enum: ["click", "wait", "end"]
+    description:
+      type: "string"
+    parameters:
+      oneOf:
+        - type: "object"  # click parameters
+          properties:
+            elementId:
+              type: "string"
+          required: ["elementId"]
+        - type: "object"  # wait parameters
+          properties:
+            duration:
+              type: "number"
+              default: 2.0
+  required: ["action", "description"]
 
 actions:
-  select_answer: 
-    keys: ["${answer}"]
-    description: "Select answer by pressing its number"
-    parameters:
-      - name: "answer"
-        description: "The number of the answer to select"
-        type: "string"
+  click:
+    description: "Click on a specific UI element"
+  wait:
+    description: "Wait for content to load"
+  end:
+    description: "End the task when complete"
