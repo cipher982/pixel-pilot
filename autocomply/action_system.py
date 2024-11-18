@@ -4,9 +4,9 @@ import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Annotated
+from typing import List
 from typing import Literal
 from typing import Optional
-from typing import Type
 from typing import TypedDict
 from typing import Union
 
@@ -23,7 +23,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from PIL import Image
 from pydantic import BaseModel
-from pydantic import create_model
+from pydantic import Field
 
 from autocomply.audio_capture import AudioCapture
 from autocomply.logger import setup_logger
@@ -41,15 +41,32 @@ class State(TypedDict):
     """Define the state schema and reducers."""
 
     messages: Annotated[list, add_messages]
-    # action_queue: list[dict]
     screenshot: Optional[Image.Image]
     audio_text: Optional[str]
-    action: Optional[str]
+    actions: list[dict]
     parameters: dict
     context: dict
     labeled_img: Optional[str]  # base64 encoded image
     label_coordinates: Optional[dict]
     parsed_content_list: Optional[list]
+
+
+class ClickParameters(BaseModel):
+    elementId: str
+
+
+class WaitParameters(BaseModel):
+    duration: float = 2.0
+
+
+class Action(BaseModel):
+    action: Literal["click", "wait", "end"]
+    description: str
+    parameters: Union[ClickParameters, WaitParameters, dict] = Field(default_factory=dict)
+
+
+class ActionResponse(BaseModel):
+    actions: List[Action]
 
 
 class ActionSystem:
@@ -60,12 +77,16 @@ class ActionSystem:
         no_audio: bool = False,
         debug: bool = False,
         use_parser: bool = False,
+        enable_chains: bool = False,
     ):
-        self.config = self._load_task_config(task_profile, instructions)
-        self.response_model = self._create_pydantic_model(self.config)
-        self.llm = ChatOpenAI(model=MODEL_NAME).with_structured_output(self.response_model)
+        # Set basic attributes first
         self.debug = debug
         self.use_parser = use_parser
+        self.enable_chains = enable_chains
+
+        # Then load config and create models
+        self.config = self._load_task_config(task_profile, instructions)
+        self.llm = ChatOpenAI(model=MODEL_NAME).with_structured_output(ActionResponse)
 
         # Initialize placeholders for all models
         self._yolo_model = None
@@ -86,7 +107,7 @@ class ActionSystem:
             "messages": [],
             "screenshot": None,
             "audio_text": None,
-            "action": None,
+            "actions": [],
             "parameters": {},
             "context": {
                 "last_action": None,
@@ -154,24 +175,13 @@ class ActionSystem:
         return True
 
     def _load_task_config(self, profile_path: Optional[str], override: Optional[str]) -> dict:
+        """Load task configuration from YAML or use default/override."""
         default_config = {
             "instructions": "Default instructions for general navigation",
             "actions": {
-                "next_slide": {
-                    "keys": ["tab"],
-                    "description": "Move to next element",
-                    "triggers": ["next element", "continue"],
-                },
-                "confirm": {
-                    "keys": ["enter"],
-                    "description": "Select element",
-                    "triggers": ["select", "confirm"],
-                },
-                "wait": {
-                    "keys": [],
-                    "description": "Wait for content",
-                    "triggers": ["loading", "playing"],
-                },
+                "click": "Click on a specific UI element (requires elementId)",
+                "wait": "Wait for content to load (optional duration in seconds)",
+                "end": "End the task when complete",
             },
         }
 
@@ -180,44 +190,9 @@ class ActionSystem:
 
         if profile_path:
             with open(profile_path) as f:
-                config = yaml.safe_load(f)
-                # Ensure each action has triggers field
-                for action in config["actions"].values():
-                    action.setdefault("triggers", [])
-                return config
+                return yaml.safe_load(f)
 
         return default_config
-
-    def _create_pydantic_model(self, config: dict) -> Type[BaseModel]:
-        """Convert YAML schema to Pydantic model dynamically"""
-        schema = config["schema"]
-
-        # Create parameter models from oneOf schemas
-        parameter_schemas = schema["properties"]["parameters"]["oneOf"]
-        parameter_models = []
-
-        for param_schema in parameter_schemas:
-            fields = {}
-            # Add fields only if properties exist
-            if "properties" in param_schema:
-                for field_name, field_info in param_schema["properties"].items():
-                    field_type = str if field_info["type"] == "string" else float
-                    # Make all fields optional with None as default
-                    fields[field_name] = (Optional[field_type], None)
-
-            # Create model even if no fields (for empty parameters)
-            param_model = create_model(f"Parameters_{len(parameter_models)}", **fields)
-            parameter_models.append(param_model)
-
-        # Build main model fields
-        fields = {
-            "action": (Literal.__getitem__(tuple(schema["properties"]["action"]["enum"])), ...),
-            "description": (str, ...),
-            "parameters": (Union.__getitem__(tuple(parameter_models)), {}),
-        }
-        pydantic_model = create_model("ActionResponse", **fields)
-        logger.info(f"Pydantic model created: {pydantic_model}")
-        return pydantic_model
 
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(State)
@@ -234,7 +209,9 @@ class ActionSystem:
         workflow.add_edge("capture_state", "decide_action")
         workflow.add_conditional_edges(
             "decide_action",
-            lambda state: "end" if state["action"] == "END" else "execute",
+            lambda state: "end"
+            if any(a.get("action", "").lower() == "end" for a in state.get("actions", []))
+            else "execute",
             {"end": END, "execute": "execute_action"},
         )
         workflow.add_edge("execute_action", "capture_state")
@@ -407,7 +384,7 @@ class ActionSystem:
 
         # Build the prompt
         actions_description = "\n".join(
-            [f"- {name}: {details['description']}" for name, details in self.config["actions"].items()]
+            [f"- {name}: {description}" for name, description in self.config["actions"].items()]
         )
 
         system_message = SystemMessage(
@@ -415,16 +392,15 @@ class ActionSystem:
                 You are an automation assistant analyzing screenshots.
                 Available actions:
                 {actions_description}
-                - END: Finish the task if it is complete.
-
-                If the task is complete or no further actions are necessary, return 'END'.
-                If content is loading or playing, return 'WAIT'.
-                Otherwise, choose one of these actions: {', '.join(self.config['actions'].keys())}
 
                 Return a JSON object with:
-                - "action": One of the available actions including 'WAIT' or 'END'
+                - "actions": A list of actions, each with:
+                - "action": One of the available actions
                 - "description": Why you chose this action
                 - "parameters": Required parameters for the chosen action
+                    - For 'click': Must include 'elementId'
+                    - For 'wait': Optional 'duration' in seconds (default: 2.0)
+                    - For 'end': No parameters needed
             """).strip()
         )
 
@@ -432,120 +408,79 @@ class ActionSystem:
 
         try:
             response = self.llm.invoke(messages)
-            action = response.action.lower()
 
-            # Early return for END action
-            if action == "end":
-                logger.info("END action received - terminating")
-                state["action"] = "END"
-                state["parameters"] = {}
-                state["messages"].append(AIMessage(content=f"Decision: {response.description} -> Action: END"))
-                return state
-
-            # Continue processing for other actions
-            state["action"] = action
-            if response.parameters and hasattr(response.parameters, "model_dump"):
-                params = response.parameters.model_dump(exclude_none=True, exclude_unset=True)
-                state["parameters"] = params if params else {}
-            else:
-                state["parameters"] = {}
-
-            state["messages"].append(
-                AIMessage(content=f"Decision: {response.description} -> Action: {state['action']}")
-            )
-
-            logger.info(f"Decided action: {state['action']} with parameters: {state['parameters']}")
-            return state
+            # Handle list of actions
+            state["actions"] = [action.model_dump() for action in response.actions]
+            actions_desc = "; ".join(f"{a.action}: {a.description}" for a in response.actions)
+            state["messages"].append(AIMessage(content=f"Decisions: {actions_desc}"))
 
         except Exception as e:
-            logger.error(f"Action decision failed: {str(e)}")
-            state["action"] = "END"  # Fail safe to END
-            return state
+            logger.error(f"Action decision failed: {str(e)}", exc_info=True)
+            state["actions"] = [{"action": "end", "description": "Error encountered", "parameters": {}}]
+
+        return state
 
     @log_runtime
     def execute_action(self, state: State) -> State:
-        """Execute the decided action with improved handling and feedback."""
-        logger.info("Executing action...")
-        action = state.get("action", "").lower()
+        """Execute the decided action(s) with improved handling and feedback."""
+        logger.info("Executing action(s)...")
 
-        if action == "end":
-            logger.info("END action received - terminating")
-            state["action"] = "END"
+        actions = state.get("actions", [])
+        if not actions:
+            logger.warning("No actions to execute")
             return state
 
-        parameters = state.get("parameters", {})
         context = state.get("context", {})
 
-        logger.info(f"Executing action: {action} with parameters: {parameters}")
+        for action_obj in actions:
+            # Access as dictionary since we stored it that way in decide_action
+            action = action_obj["action"].lower()
+            if action == "end":
+                logger.info("END action received - terminating")
+                state["actions"] = []
+                state["messages"].append(SystemMessage(content="Task ended."))
+                return state
 
-        try:
-            match action:
-                case "click":
-                    element_id = parameters.get("elementId") or parameters.get("element_id")
-                    if element_id is not None:
-                        element_id = str(element_id)
-                        if element_id not in state["label_coordinates"]:
+            parameters = action_obj.get("parameters", {})
+            logger.info(f"Executing action: {action} with parameters: {parameters}")
+
+            try:
+                match action:
+                    case "click":
+                        element_id = parameters.get("elementId") or parameters.get("element_id")
+                        if not element_id or element_id not in state["label_coordinates"]:
                             raise ValueError(f"Invalid element_id: {element_id}")
-                    else:
-                        raise ValueError("No element_id provided in parameters")
-                    logger.info(f"Using element_id: {element_id}")
 
-                    rel_coords = state["label_coordinates"][element_id]
-                    logger.info(f"Found relative coordinates: {rel_coords}")
+                        rel_coords = state["label_coordinates"][element_id]
+                        rel_x = rel_coords[0] + (rel_coords[2] / 2)
+                        rel_y = rel_coords[1] + (rel_coords[3] / 2)
+                        abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
 
-                    # Calculate center point
-                    rel_x = rel_coords[0] + (rel_coords[2] / 2)
-                    rel_y = rel_coords[1] + (rel_coords[3] / 2)
-                    abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
-                    logger.info(f"Using absolute coordinates: ({abs_x}, {abs_y})")
+                        time.sleep(0.5)
+                        if not self._click_at_coordinates(abs_x, abs_y):
+                            raise RuntimeError("Click action failed")
+                        time.sleep(0.5)
 
-                    # Pre-click delay for visibility
-                    time.sleep(0.2)
-                    success = self._click_at_coordinates(abs_x, abs_y)
-                    logger.info(f"Click action result: {success}")
+                    case "wait":
+                        time.sleep(parameters.get("duration", 2.0))
 
-                    if not success:
-                        raise RuntimeError("Click action failed")
+                    case _:
+                        raise ValueError(f"Unknown action: {action}")
 
-                    # Post-click delay
-                    time.sleep(0.2)
+                context["last_action"] = action
+                logger.info(f"Action {action} completed successfully")
 
-                case "wait":
-                    logger.info("Waiting for content...")
-                    time.sleep(1.0)
+            except Exception as e:
+                logger.error(f"Action execution failed: {str(e)}")
+                context["last_error"] = str(e)
+                break
 
-                case "end":
-                    logger.info("Task completed")
-                    state["action"] = "END"
-                    return state
+        # Clean up state after all actions complete
+        state["actions"] = []
+        state["context"] = context
 
-                case "type" if "text" in parameters:
-                    # Optional: Implement text input if needed
-                    text = parameters["text"]
-                    logger.info(f"Typing text: {text}")
-                    # TODO: Implement typing mechanism
-                    pass
-
-                case _:
-                    raise ValueError(f"Unknown action: {action}")
-
-            # Update context with successful action
-            context["last_action"] = action
-            state["context"] = context
-
-            # Only reset action for non-end actions
-            if action != "end":
-                state["action"] = None
-
-            logger.info("Action executed successfully")
-            return state
-
-        except Exception as e:
-            logger.error(f"Action execution failed: {str(e)}")
-            # Update state to reflect failure
-            state["action"] = None
-            state["context"] = {**context, "last_error": str(e), "last_failed_action": action}
-            return state
+        logger.info("All actions completed successfully")
+        return state
 
     # Helper methods
     def _convert_relative_to_absolute(self, rel_x: float, rel_y: float) -> tuple[int, int]:
