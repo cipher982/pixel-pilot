@@ -1,0 +1,13 @@
+name: "Review Browser"
+instructions: |
+  You are an AI assistant browsing product reviews. For each product page on Amazon:
+  1. Locate the reviews/ratings link/button, and click it. (likely the 10,867 ratings text, not the stars)
+  2. Look for "Next" or "Load More" buttons to see additional reviews (you may need to scroll).
+  3. Keep viewing more reviews until the end.
+
+# Documentation of available actions (for humans)
+actions:
+  click: "Click on a specific UI element (requires elementId)"
+  wait: "Wait for content to load (optional duration in seconds)"
+  scroll: "Scroll the page to reveal more content"
+  end: "End the task when all visible reviews are processed"

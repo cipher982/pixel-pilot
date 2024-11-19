@@ -15,6 +15,7 @@ logger = setup_logger(__name__)
 @click.option("--instructions", "-i", help="Override task instructions")
 @click.option("--use-parser", is_flag=True, help="Use parser to analyze inputs")
 @click.option("--enable-chains", is_flag=True, help="Enable multiple actions at once")
+@click.option("--use-chrome", is_flag=True, help="Use Chrome window for capture")
 def main(
     no_audio: bool = False,
     debug: bool = False,
@@ -22,6 +23,7 @@ def main(
     instructions: Optional[str] = None,
     use_parser: bool = False,
     enable_chains: bool = False,
+    use_chrome: bool = False,
 ):
     action_system = ActionSystem(
         task_profile=task_profile,
@@ -30,6 +32,7 @@ def main(
         debug=debug,
         use_parser=use_parser,
         enable_chains=enable_chains,
+        use_chrome=use_chrome,
     )
     action_system.run()
 

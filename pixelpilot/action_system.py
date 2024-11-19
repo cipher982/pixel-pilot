@@ -55,14 +55,20 @@ class ClickParameters(BaseModel):
     elementId: str
 
 
+class ScrollParameters(BaseModel):
+    """Optional parameters for scroll action"""
+
+    amount: int = -400  # Negative values scroll down, positive up
+
+
 class WaitParameters(BaseModel):
     duration: float = 2.0
 
 
 class Action(BaseModel):
-    action: Literal["click", "wait", "end"]
+    action: Literal["click", "scroll", "wait", "end"]
     description: str
-    parameters: Union[ClickParameters, WaitParameters, dict] = Field(default_factory=dict)
+    parameters: Union[ClickParameters, WaitParameters, ScrollParameters, dict] = Field(default_factory=dict)
 
 
 class ActionResponse(BaseModel):
@@ -155,7 +161,7 @@ class ActionSystem:
             return True
 
         logger.info("Please select the window you want to control...")
-        self.window_info = self.window_capture.select_window_interactive()
+        self.window_info = self.window_capture.select_window_interactive(use_chrome=self.use_chrome)
 
         if not self.window_info:
             logger.error("No window selected")
@@ -345,7 +351,7 @@ class ActionSystem:
             img = Image.open(BytesIO(img_data))
 
             # Get compressed base64 string
-            compressed_base64 = self._encode_image(img, max_size=1000)
+            compressed_base64 = self._encode_image(img)
 
             timestamp = time.strftime("%H:%M:%S")
             messages.append(
@@ -390,6 +396,10 @@ class ActionSystem:
         system_message = SystemMessage(
             content=dedent(f"""
                 You are an automation assistant analyzing screenshots.
+                
+                Task Instructions:
+                {self.config["instructions"]}
+                
                 Available actions:
                 {actions_description}
 
@@ -411,6 +421,14 @@ class ActionSystem:
 
             # Handle list of actions
             state["actions"] = [action.model_dump() for action in response.actions]
+            logger.info(f"Decided actions: {state['actions']}")
+
+            for action in response.actions:
+                # Get parameters directly from the model_dump
+                action_dict = action.model_dump()
+                params_str = ", ".join(f"{k}={v}" for k, v in action_dict["parameters"].items())
+                logger.info(f"Decided action: {action_dict['action']} ({params_str}) - {action_dict['description']}")
+
             actions_desc = "; ".join(f"{a.action}: {a.description}" for a in response.actions)
             state["messages"].append(AIMessage(content=f"Decisions: {actions_desc}"))
 
@@ -444,6 +462,22 @@ class ActionSystem:
             parameters = action_obj.get("parameters", {})
             logger.info(f"Executing action: {action} with parameters: {parameters}")
 
+            # More detailed logging before execution
+            if action == "click":
+                element_id = parameters.get("elementId") or parameters.get("element_id")
+                if element_id and element_id in state["label_coordinates"]:
+                    parsed_content = state.get("parsed_content_list", [])
+                    element_label = next(
+                        (content for content in parsed_content if content.startswith(f"{element_id}:")),
+                        f"Element {element_id}",
+                    )
+                    logger.info(f"Executing click on {element_label}")
+                else:
+                    logger.warning(f"Element ID {element_id} not found in coordinates")
+            else:
+                params_str = ", ".join(f"{k}={v}" for k, v in parameters.items())
+                logger.info(f"Executing {action} with {params_str}")
+
             try:
                 match action:
                     case "click":
@@ -463,6 +497,26 @@ class ActionSystem:
 
                     case "wait":
                         time.sleep(parameters.get("duration", 2.0))
+
+                    case "scroll":
+                        import pyautogui
+
+                        # Focus window first
+                        window_info = self.current_state["context"]["window_info"]
+                        script = f"""
+                            tell application "System Events"
+                                tell process "{window_info['kCGWindowOwnerName']}"
+                                    set frontmost to true
+                                end tell
+                            end tell
+                        """
+                        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                        time.sleep(0.2)
+
+                        # Scroll down
+                        amount = parameters.get("amount", -850)  # Use default if not specified
+                        pyautogui.scroll(amount)  # Negative values scroll down
+                        time.sleep(0.5)  # Wait for scroll to complete
 
                     case _:
                         raise ValueError(f"Unknown action: {action}")
@@ -528,20 +582,26 @@ class ActionSystem:
             logger.error(f"Failed to click: {str(e)}")
             return False
 
-    def _encode_image(self, image: Image.Image, max_size: int = 800) -> str:
-        """Encode screenshot to base64 string with PNG optimization."""
-        img = image.copy()
-
-        # Resize if larger than max_size
-        if max(img.size) > max_size:
-            ratio = max_size / max(img.size)
-            new_size = tuple(int(dim * ratio) for dim in img.size)
-            img = img.resize(new_size, Image.Resampling.LANCZOS)
-
-        # Convert to PNG with optimization
+    def _encode_image(self, image: Image.Image) -> str:
+        """Convert image to base64 string."""
         buffered = BytesIO()
-        img.save(buffered, format="PNG", optimize=True)
+        image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    # def _encode_image(self, image: Image.Image, max_size: int = 800) -> str:
+    #     """Encode screenshot to base64 string with PNG optimization."""
+    #     img = image.copy()
+
+    #     # Resize if larger than max_size
+    #     if max(img.size) > max_size:
+    #         ratio = max_size / max(img.size)
+    #         new_size = tuple(int(dim * ratio) for dim in img.size)
+    #         img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+    #     # Convert to PNG with optimization
+    #     buffered = BytesIO()
+    #     img.save(buffered, format="PNG", optimize=True)
+    #     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
         """Send keystrokes to specific window using AppleScript."""
