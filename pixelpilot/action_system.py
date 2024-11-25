@@ -84,11 +84,13 @@ class ActionSystem:
         debug: bool = False,
         use_parser: bool = False,
         enable_chains: bool = False,
+        use_chrome: bool = False,
     ):
         # Set basic attributes first
         self.debug = debug
         self.use_parser = use_parser
         self.enable_chains = enable_chains
+        self.use_chrome = use_chrome
 
         # Then load config and create models
         self.config = self._load_task_config(task_profile, instructions)
@@ -588,21 +590,6 @@ class ActionSystem:
         image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # def _encode_image(self, image: Image.Image, max_size: int = 800) -> str:
-    #     """Encode screenshot to base64 string with PNG optimization."""
-    #     img = image.copy()
-
-    #     # Resize if larger than max_size
-    #     if max(img.size) > max_size:
-    #         ratio = max_size / max(img.size)
-    #         new_size = tuple(int(dim * ratio) for dim in img.size)
-    #         img = img.resize(new_size, Image.Resampling.LANCZOS)
-
-    #     # Convert to PNG with optimization
-    #     buffered = BytesIO()
-    #     img.save(buffered, format="PNG", optimize=True)
-    #     return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
     def _send_keys_to_window(self, keys: list[str]) -> bool:
         """Send keystrokes to specific window using AppleScript."""
         try:
@@ -631,7 +618,7 @@ class ActionSystem:
             logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
             return False
 
-    def test_parser(self, image_path: str) -> None:
+    def test_parser(self, image_path: str) -> bool:
         """Simple test method to verify OmniParser integration."""
         from pixelpilot.utils import check_ocr_box
         from pixelpilot.utils import get_som_labeled_img
@@ -652,10 +639,10 @@ class ActionSystem:
             labeled_img, coordinates, parsed_content = get_som_labeled_img(
                 image_path,
                 self.yolo_model,
-                BOX_TRESHOLD=0.05,
+                box_threshold=0.05,
                 output_coord_in_ratio=True,
                 ocr_bbox=ocr_bbox,
-                caption_model_processor=self.caption_model_processor,
+                caption_model_processor=self.florence_models["processor"],
                 ocr_text=text,
                 iou_threshold=0.1,
             )
