@@ -98,6 +98,8 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
     generated_texts = []
     device = model.device
 
+    batch_count = len(croped_pil_image) // batch_size
+    logger.info(f"Parsing {len(croped_pil_image)} sized image in {batch_count} batches...")
     for i in range(0, len(croped_pil_image), batch_size):
         batch = croped_pil_image[i : i + batch_size]
 
@@ -124,6 +126,8 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
         generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)
         generated_text = [gen.strip() for gen in generated_text]
         generated_texts.extend(generated_text)
+
+    logger.info(f"DEBUG: parsed content: {generated_texts}")
 
     return generated_texts
 

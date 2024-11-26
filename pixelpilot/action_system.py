@@ -32,9 +32,11 @@ from pixelpilot.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
+# Model configuration
+# CAPTION_MODEL = "florence"
+CAPTION_MODEL = "blip"
 MODEL_NAME = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 5
-# USE_PARSER = False
 
 
 class State(TypedDict):
@@ -100,9 +102,12 @@ class ActionSystem:
         self._yolo_model = None
         self._florence_processor = None
         self._florence_model = None
+        self._blip_processor = None
+        self._blip_model = None
 
         # Initialize device
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # self.device = "cpu"
         logger.info(f"Using device: {self.device}")
 
         # Initialize components
@@ -139,6 +144,13 @@ class ActionSystem:
         return self._yolo_model
 
     @property
+    def caption_model(self):
+        """Get the currently selected caption model."""
+        if CAPTION_MODEL == "blip":
+            return self.blip_models
+        return self.florence_models
+
+    @property
     def florence_models(self):
         """Lazy load Florence models only when needed"""
         if self._florence_processor is None or self._florence_model is None:
@@ -156,6 +168,27 @@ class ActionSystem:
             ).to(self.device)
             logger.info("Florence caption model loaded successfully")
         return {"processor": self._florence_processor, "model": self._florence_model}
+
+    @property
+    def blip_models(self):
+        """Lazy load BLIP models only when needed"""
+        if self._blip_processor is None or self._blip_model is None:
+            from transformers import Blip2ForConditionalGeneration
+            from transformers import Blip2Processor
+
+            logger.info("Loading BLIP-2 models...")
+            model_name = "Salesforce/blip2-opt-2.7b"
+
+            self._blip_processor = Blip2Processor.from_pretrained(model_name)
+            logger.info("BLIP-2 processor loaded successfully")
+
+            self._blip_model = Blip2ForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                device_map=self.device,
+            )
+            logger.info("BLIP-2 caption model loaded successfully")
+        return {"processor": self._blip_processor, "model": self._blip_model}
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -301,7 +334,7 @@ class ActionSystem:
                     "text_padding": 3,
                     "thickness": 3,
                 },
-                caption_model_processor=self.florence_models,
+                caption_model_processor=self.caption_model,
                 ocr_text=text,
                 iou_threshold=iou_threshold,
             )

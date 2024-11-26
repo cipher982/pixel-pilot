@@ -9,6 +9,7 @@ import Quartz.CoreGraphics as CG
 from PIL import Image
 
 from pixelpilot.logger import setup_logger
+from pixelpilot.utils import log_runtime
 
 logger = setup_logger(__name__)
 
@@ -98,6 +99,7 @@ class WindowCapture:
 
             time.sleep(0.1)  # Small delay to prevent high CPU usage
 
+    @log_runtime
     def capture_window(self, window_info: Dict[str, Any], output_path: Optional[str] = None) -> Optional[Image.Image]:
         """Capture the specified window and return as PIL Image.
 
