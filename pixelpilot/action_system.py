@@ -33,9 +33,11 @@ from pixelpilot.window_capture import WindowCapture
 logger = setup_logger(__name__)
 
 # Model configuration
-# CAPTION_MODEL = "florence"
-CAPTION_MODEL = "blip"
-MODEL_NAME = "gpt-4o-2024-08-06"
+CAPTION_MODEL = "florence"
+# CAPTION_MODEL = "blip"
+ENABLE_FLORENCE_CAPABILITY = True
+DECISION_MODEL = "gpt-4o-2024-08-06"
+# DECISION_MODEL = "gpt-4o-mini"
 MAX_MESSAGES = 5
 
 
@@ -96,12 +98,12 @@ class ActionSystem:
 
         # Then load config and create models
         self.config = self._load_task_config(task_profile, instructions)
-        self.llm = ChatOpenAI(model=MODEL_NAME).with_structured_output(ActionResponse)
+        self.llm = ChatOpenAI(model=DECISION_MODEL).with_structured_output(ActionResponse)
 
         # Initialize placeholders for all models
         self._yolo_model = None
-        self._florence_processor = None
-        self._florence_model = None
+        self._florence_processor = None if ENABLE_FLORENCE_CAPABILITY else False
+        self._florence_model = None if ENABLE_FLORENCE_CAPABILITY else False
         self._blip_processor = None
         self._blip_model = None
 
@@ -147,12 +149,15 @@ class ActionSystem:
     def caption_model(self):
         """Get the currently selected caption model."""
         if CAPTION_MODEL == "blip":
-            return self.blip_models
+            raise NotImplementedError("BLIP captioning is not yet implemented")
         return self.florence_models
 
     @property
     def florence_models(self):
         """Lazy load Florence models only when needed"""
+        if not ENABLE_FLORENCE_CAPABILITY:
+            return None
+
         if self._florence_processor is None or self._florence_model is None:
             from transformers import AutoModelForCausalLM
             from transformers import AutoProcessor
@@ -169,26 +174,26 @@ class ActionSystem:
             logger.info("Florence caption model loaded successfully")
         return {"processor": self._florence_processor, "model": self._florence_model}
 
-    @property
-    def blip_models(self):
-        """Lazy load BLIP models only when needed"""
-        if self._blip_processor is None or self._blip_model is None:
-            from transformers import Blip2ForConditionalGeneration
-            from transformers import Blip2Processor
+    # @property
+    # def blip_models(self):
+    #     """Lazy load BLIP models only when needed"""
+    #     if self._blip_processor is None or self._blip_model is None:
+    #         from transformers import Blip2ForConditionalGeneration
+    #         from transformers import Blip2Processor
 
-            logger.info("Loading BLIP-2 models...")
-            model_name = "Salesforce/blip2-opt-2.7b"
+    #         logger.info("Loading BLIP-2 models...")
+    #         model_name = "Salesforce/blip2-opt-2.7b"
 
-            self._blip_processor = Blip2Processor.from_pretrained(model_name)
-            logger.info("BLIP-2 processor loaded successfully")
+    #         self._blip_processor = Blip2Processor.from_pretrained(model_name)
+    #         logger.info("BLIP-2 processor loaded successfully")
 
-            self._blip_model = Blip2ForConditionalGeneration.from_pretrained(
-                model_name,
-                torch_dtype=torch.float16,
-                device_map=self.device,
-            )
-            logger.info("BLIP-2 caption model loaded successfully")
-        return {"processor": self._blip_processor, "model": self._blip_model}
+    #         self._blip_model = Blip2ForConditionalGeneration.from_pretrained(
+    #             model_name,
+    #             torch_dtype=torch.float16,
+    #             device_map=self.device,
+    #         )
+    #         logger.info("BLIP-2 caption model loaded successfully")
+    #     return {"processor": self._blip_processor, "model": self._blip_model}
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -240,7 +245,7 @@ class ActionSystem:
 
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
-        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=self.use_parser))
+        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=self.use_parser))  # type: ignore
         workflow.add_node("execute_action", self.execute_action)
 
         # Set entry point
@@ -257,7 +262,7 @@ class ActionSystem:
         )
         workflow.add_edge("execute_action", "capture_state")
 
-        return workflow.compile()
+        return workflow.compile()  # type: ignore
 
     def run(self) -> None:
         """Run the action system's graph."""
@@ -266,7 +271,7 @@ class ActionSystem:
 
         logger.info("Starting action system graph...")
         try:
-            self.graph.invoke(self.current_state)
+            self.graph.invoke(self.current_state)  # type: ignore
         except KeyboardInterrupt:
             logger.info("Stopping action system due to user interrupt...")
         except GraphRecursionError as e:
@@ -292,7 +297,7 @@ class ActionSystem:
         logger.info("Capturing state...")
 
         # Capture screenshot
-        screenshot = self.window_capture.capture_window(self.window_info)
+        screenshot = self.window_capture.capture_window(self.window_info)  # type: ignore
         state["screenshot"] = screenshot
 
         if self.use_parser:
@@ -380,6 +385,9 @@ class ActionSystem:
         parsed_content_list = state.get("parsed_content_list", [])
         labeled_img = state.get("labeled_img")
 
+        # Always set parsed_content_list to an empty list if not found
+        state["parsed_content_list"] = parsed_content_list or []
+
         if labeled_img and parsed_content_list:
             # Decode base64 string back to image, compress, then re-encode
             img_data = base64.b64decode(labeled_img)
@@ -407,7 +415,7 @@ class ActionSystem:
                 )
             )
         else:
-            raise ValueError("No labeled image or parsed content list found")
+            logger.warning("No labeled image or parsed content list found")
 
         logger.info("Analysis with parser complete")
         state["messages"] = messages[-MAX_MESSAGES:]
@@ -455,16 +463,16 @@ class ActionSystem:
             response = self.llm.invoke(messages)
 
             # Handle list of actions
-            state["actions"] = [action.model_dump() for action in response.actions]
+            state["actions"] = [action.model_dump() for action in response.actions]  # type: ignore
             logger.info(f"Decided actions: {state['actions']}")
 
-            for action in response.actions:
+            for action in response.actions:  # type: ignore
                 # Get parameters directly from the model_dump
                 action_dict = action.model_dump()
                 params_str = ", ".join(f"{k}={v}" for k, v in action_dict["parameters"].items())
                 logger.info(f"Decided action: {action_dict['action']} ({params_str}) - {action_dict['description']}")
 
-            actions_desc = "; ".join(f"{a.action}: {a.description}" for a in response.actions)
+            actions_desc = "; ".join(f"{a.action}: {a.description}" for a in response.actions)  # type: ignore
             state["messages"].append(AIMessage(content=f"Decisions: {actions_desc}"))
 
         except Exception as e:
@@ -502,6 +510,7 @@ class ActionSystem:
                 element_id = parameters.get("elementId") or parameters.get("element_id")
                 if element_id and element_id in state["label_coordinates"]:
                     parsed_content = state.get("parsed_content_list", [])
+                    assert parsed_content
                     element_label = next(
                         (content for content in parsed_content if content.startswith(f"{element_id}:")),
                         f"Element {element_id}",
@@ -520,15 +529,14 @@ class ActionSystem:
                         if not element_id or element_id not in state["label_coordinates"]:
                             raise ValueError(f"Invalid element_id: {element_id}")
 
-                        rel_coords = state["label_coordinates"][element_id]
+                        rel_coords = state["label_coordinates"][element_id]  # type: ignore
                         rel_x = rel_coords[0] + (rel_coords[2] / 2)
                         rel_y = rel_coords[1] + (rel_coords[3] / 2)
                         abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
 
-                        time.sleep(0.5)
-                        if not self._click_at_coordinates(abs_x, abs_y, duration=0.5):
+                        if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
                             raise RuntimeError("Click action failed")
-                        time.sleep(0.5)
+                        time.sleep(0.2)
 
                     case "wait":
                         time.sleep(parameters.get("duration", 2.0))
@@ -649,41 +657,4 @@ class ActionSystem:
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
-            return False
-
-    def test_parser(self, image_path: str) -> bool:
-        """Simple test method to verify OmniParser integration."""
-        from pixelpilot.utils import check_ocr_box
-        from pixelpilot.utils import get_som_labeled_img
-
-        try:
-            # Use existing utils functions
-            ocr_bbox_rslt, _ = check_ocr_box(
-                image_path,
-                display_img=False,
-                output_bb_format="xyxy",
-                goal_filtering=None,
-                easyocr_args={"paragraph": False, "text_threshold": 0.9},
-                use_paddleocr=False,
-            )
-            text, ocr_bbox = ocr_bbox_rslt
-
-            # Get labeled image and parsed content
-            labeled_img, coordinates, parsed_content = get_som_labeled_img(
-                image_path,
-                self.yolo_model,
-                box_threshold=0.05,
-                output_coord_in_ratio=True,
-                ocr_bbox=ocr_bbox,
-                caption_model_processor=self.florence_models["processor"],
-                ocr_text=text,
-                iou_threshold=0.1,
-            )
-
-            logger.info("Parser test successful!")
-            logger.info(f"Parsed content: {parsed_content}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Parser test failed: {e}")
             return False

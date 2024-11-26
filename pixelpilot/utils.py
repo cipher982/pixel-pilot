@@ -3,6 +3,7 @@ import io
 import os
 import time
 from functools import wraps
+from typing import Dict
 from typing import List
 from typing import Tuple
 
@@ -11,7 +12,6 @@ import easyocr
 import numpy as np
 import supervision as sv
 import torch
-import torchvision.transforms as T
 from matplotlib import pyplot as plt
 from PIL import Image
 from torchvision.ops import box_convert
@@ -39,29 +39,6 @@ def log_runtime(func):
         return result
 
     return wrapper
-
-
-def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2-opt-2.7b", device=None):
-    if not device:
-        device = DEVICE
-    if model_name == "blip2":
-        from transformers import Blip2ForConditionalGeneration
-        from transformers import Blip2Processor
-
-        processor = Blip2Processor.from_pretrained("Salesforce/blip2-opt-2.7b")
-        model = Blip2ForConditionalGeneration.from_pretrained(
-            model_name_or_path, device_map=None, torch_dtype=torch.float16
-        ).to(device)
-    elif model_name == "florence2":
-        from transformers import AutoModelForCausalLM
-        from transformers import AutoProcessor
-
-        processor = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path, torch_dtype=torch.float16, trust_remote_code=True
-        ).to(device)
-
-    return {"model": model, "processor": processor}
 
 
 def get_yolo_model(model_path):
@@ -180,57 +157,28 @@ def remove_overlap(boxes, iou_threshold, ocr_bbox=None):
 
 
 @log_runtime
-def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
-    transform = T.Compose(
-        [
-            T.RandomResize([800], max_size=1333),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ]
-    )
-    image_source = Image.open(image_path).convert("RGB")
-    image = np.asarray(image_source)
-    image_transformed, _ = transform(image_source, None)
-    return image, image_transformed
-
-
-@log_runtime
 def annotate(
     image_source: np.ndarray,
     boxes: torch.Tensor,
-    logits: torch.Tensor,
     phrases: List[str],
     text_scale: float,
-    text_padding=5,
-    text_thickness=2,
-    thickness=3,
-) -> np.ndarray:
-    """
-    This function annotates an image with bounding boxes and labels.
-
-    Parameters:
-    image_source (np.ndarray): The source image to be annotated.
-    boxes (torch.Tensor): A tensor containing bounding box coordinates. in cxcywh format, pixel scale
-    logits (torch.Tensor): A tensor containing confidence scores for each bounding box.
-    phrases (List[str]): A list of labels for each bounding box.
-    text_scale (float): The scale of the text to be displayed. 0.8 for mobile/web, 0.3 for desktop # 0.4 for mind2web
-
-    Returns:
-    np.ndarray: The annotated image.
-    """
+    text_padding: int = 5,
+    text_thickness: int = 2,
+    thickness: int = 3,
+) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     h, w, _ = image_source.shape
     boxes = boxes * torch.Tensor([w, h, w, h])
     xyxy = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()
     xywh = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xywh").numpy()
-    detections = sv.Detections(xyxy=xyxy)
+    detections = sv.Detections(xyxy=xyxy)  # type: ignore
 
-    labels = [f"{phrase}" for phrase in range(boxes.shape[0])]
+    labels = [f"{i}" for i in range(boxes.shape[0])]
 
     from pixelpilot.util.box_annotator import BoxAnnotator
 
     box_annotator = BoxAnnotator(
         text_scale=text_scale, text_padding=text_padding, text_thickness=text_thickness, thickness=thickness
-    )  # 0.8 for mobile/web, 0.3 for desktop # 0.4 for mind2web
+    )
     annotated_frame = image_source.copy()
     annotated_frame = box_annotator.annotate(
         scene=annotated_frame, detections=detections, labels=labels, image_size=(w, h)
@@ -287,19 +235,58 @@ def get_som_labeled_img(
     draw_bbox_config=None,
     caption_model_processor=None,
     ocr_text=[],
-    use_local_semantics=True,
     iou_threshold=0.9,
     prompt=None,
 ):
     # Convert to numpy array if PIL Image
     if isinstance(image, Image.Image):
-        # Convert PIL image to RGB and then to numpy array
         image = image.convert("RGB")
         image_np = np.array(image)
     else:
         image_np = image
 
-    # Ensure we have 3 channels RGB
+    # Process image and get boxes
+    image_source = process_image_for_detection(image_np)
+    h, w = image_source.shape[:2]
+    xyxy, logits, phrases = get_detection_boxes(image_source, model, box_threshold)
+
+    # Process OCR boxes
+    filtered_boxes = process_ocr_boxes(xyxy, h, w, ocr_bbox, iou_threshold)
+
+    # Get content labels (semantic processing only if Florence is enabled)
+    parsed_content_merged = [f"Text Box ID {i}: {txt}" for i, txt in enumerate(ocr_text)]
+    if caption_model_processor is not None:
+        parsed_content_icon = get_parsed_content_icon(
+            filtered_boxes, ocr_bbox, image_source, caption_model_processor, prompt=prompt
+        )
+        icon_start = len(ocr_text)
+        parsed_content_icon_ls = [
+            f"Icon Box ID {str(i+icon_start)}: {txt}" for i, txt in enumerate(parsed_content_icon)
+        ]
+        parsed_content_merged.extend(parsed_content_icon_ls)
+
+    # Prepare final output
+    filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
+    phrases = [i for i in range(len(filtered_boxes))]
+    # Draw boxes and get coordinates
+    annotated_frame, label_coordinates = draw_boxes_and_labels(
+        image_source,
+        filtered_boxes,
+        phrases,
+        draw_bbox_config or {"text_scale": text_scale, "text_padding": text_padding},
+    )
+
+    # Format output
+    encoded_image = encode_image_output(annotated_frame)
+    if output_coord_in_ratio:
+        label_coordinates = {k: [v[0] / w, v[1] / h, v[2] / w, v[3] / h] for k, v in label_coordinates.items()}
+
+    return encoded_image, label_coordinates, parsed_content_merged
+
+
+@log_runtime
+def process_image_for_detection(image_np):
+    """Process image for detection, ensuring RGB format."""
     if len(image_np.shape) == 3:
         if image_np.shape[2] == 4:  # RGBA
             image_source = image_np[:, :, :3]  # Drop alpha channel
@@ -312,30 +299,42 @@ def get_som_labeled_img(
             raise ValueError(f"Unexpected number of channels: {image_np.shape[2]}")
     else:
         raise ValueError("Image must be RGB/BGR/RGBA with 3 or 4 channels")
+    return image_source
 
-    # Get dimensions
+
+@log_runtime
+def get_detection_boxes(image_source, model, box_threshold):
+    """Get detection boxes from YOLO model."""
     h, w = image_source.shape[:2]
     xyxy, logits, phrases = predict_yolo(
         model=model,
-        image_np=image_source,  # Pass RGB numpy array
+        image_np=image_source,
         box_threshold=box_threshold,
     )
-
     xyxy = xyxy / torch.Tensor([w, h, w, h]).to(xyxy.device)
     phrases = [str(i) for i in range(len(phrases))]
+    return xyxy, logits, phrases
 
-    # annotate the image with labels
-    h, w, _ = image_source.shape
+
+@log_runtime
+def process_ocr_boxes(xyxy, h, w, ocr_bbox, iou_threshold):
+    """Process and normalize OCR boxes."""
     if ocr_bbox:
+        logger.info(f"ocr_bbox: {ocr_bbox}")
         ocr_bbox = torch.tensor(ocr_bbox) / torch.Tensor([w, h, w, h])
         ocr_bbox = ocr_bbox.tolist()
     else:
-        print("no ocr bbox!!!")
+        logger.info("ocr_bbox is None")
         ocr_bbox = None
-    filtered_boxes = remove_overlap(boxes=xyxy, iou_threshold=iou_threshold, ocr_bbox=ocr_bbox)
+    return remove_overlap(boxes=xyxy, iou_threshold=iou_threshold, ocr_bbox=ocr_bbox)
 
-    # get parsed icon local semantics
-    if use_local_semantics:
+
+@log_runtime
+def get_content_labels(
+    use_local_semantics, filtered_boxes, ocr_bbox, image_source, caption_model_processor, ocr_text, prompt
+):
+    """Get content labels based on semantics setting."""
+    if use_local_semantics and caption_model_processor:
         parsed_content_icon = get_parsed_content_icon(
             filtered_boxes, ocr_bbox, image_source, caption_model_processor, prompt=prompt
         )
@@ -344,40 +343,36 @@ def get_som_labeled_img(
         parsed_content_icon_ls = []
         for i, txt in enumerate(parsed_content_icon):
             parsed_content_icon_ls.append(f"Icon Box ID {str(i+icon_start)}: {txt}")
-        parsed_content_merged = ocr_text + parsed_content_icon_ls
+        return ocr_text + parsed_content_icon_ls
     else:
-        ocr_text = [f"Text Box ID {i}: {txt}" for i, txt in enumerate(ocr_text)]
-        parsed_content_merged = ocr_text
+        return [f"Text Box ID {i}: {txt}" for i, txt in enumerate(ocr_text)]
 
-    filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
 
-    phrases = [i for i in range(len(filtered_boxes))]
+@log_runtime
+def draw_boxes_and_labels(image_source, filtered_boxes, phrases, draw_config):
+    """Draw boxes and labels on the image.
 
-    # draw boxes
-    if draw_bbox_config:
-        annotated_frame, label_coordinates = annotate(
-            image_source=image_source, boxes=filtered_boxes, logits=logits, phrases=phrases, **draw_bbox_config
-        )
-    else:
-        annotated_frame, label_coordinates = annotate(
-            image_source=image_source,
-            boxes=filtered_boxes,
-            logits=logits,
-            phrases=phrases,
-            text_scale=text_scale,
-            text_padding=text_padding,
-        )
+    Returns:
+        tuple: (annotated_image, label_coordinates)
+            - annotated_image: np.ndarray of the image with drawn boxes and labels
+            - label_coordinates: dict mapping phrase IDs to their coordinates in xywh format
+    """
+    return annotate(
+        image_source=image_source,
+        boxes=filtered_boxes,
+        phrases=phrases,
+        text_scale=draw_config.get("text_scale", 0.4),
+        text_padding=draw_config.get("text_padding", 5),
+    )
 
+
+@log_runtime
+def encode_image_output(annotated_frame):
+    """Encode the annotated image to base64."""
     pil_img = Image.fromarray(annotated_frame)
     buffered = io.BytesIO()
     pil_img.save(buffered, format="PNG")
-    encoded_image = base64.b64encode(buffered.getvalue()).decode("ascii")
-    if output_coord_in_ratio:
-        # h, w, _ = image_source.shape
-        label_coordinates = {k: [v[0] / w, v[1] / h, v[2] / w, v[3] / h] for k, v in label_coordinates.items()}
-        assert w == annotated_frame.shape[1] and h == annotated_frame.shape[0]
-
-    return encoded_image, label_coordinates, parsed_content_merged
+    return base64.b64encode(buffered.getvalue()).decode("ascii")
 
 
 def get_xywh(input):
