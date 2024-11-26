@@ -32,12 +32,11 @@ from pixelpilot.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
-# Model configuration
+# Semantic models
 CAPTION_MODEL = "florence"
 # CAPTION_MODEL = "blip"
 ENABLE_FLORENCE_CAPABILITY = True
 DECISION_MODEL = "gpt-4o-2024-08-06"
-# DECISION_MODEL = "gpt-4o-mini"
 MAX_MESSAGES = 5
 
 
@@ -70,8 +69,8 @@ class WaitParameters(BaseModel):
 
 
 class Action(BaseModel):
-    action: Literal["click", "scroll", "wait", "end"]
     description: str
+    action: Literal["click", "scroll", "wait", "end"]
     parameters: Union[ClickParameters, WaitParameters, ScrollParameters, dict] = Field(default_factory=dict)
 
 
@@ -466,14 +465,23 @@ class ActionSystem:
             state["actions"] = [action.model_dump() for action in response.actions]  # type: ignore
             logger.info(f"Decided actions: {state['actions']}")
 
+            action_details = []
             for action in response.actions:  # type: ignore
-                # Get parameters directly from the model_dump
                 action_dict = action.model_dump()
                 params_str = ", ".join(f"{k}={v}" for k, v in action_dict["parameters"].items())
                 logger.info(f"Decided action: {action_dict['action']} ({params_str}) - {action_dict['description']}")
 
-            actions_desc = "; ".join(f"{a.action}: {a.description}" for a in response.actions)  # type: ignore
-            state["messages"].append(AIMessage(content=f"Decisions: {actions_desc}"))
+                # Build detailed action message with reasoning
+                action_msg = f"{action_dict['action'].upper()}"
+                if action_dict["parameters"]:
+                    param_details = [f"{k}={v}" for k, v in action_dict["parameters"].items()]
+                    action_msg += f" ({', '.join(param_details)})"
+                action_msg += f" - {action_dict['description']}"
+                action_details.append(action_msg)
+
+            # Add AI message with complete context
+            message = "Actions decided:\n" + "\n→ ".join(action_details)
+            state["messages"].append(AIMessage(content=message))
 
         except Exception as e:
             logger.error(f"Action decision failed: {str(e)}", exc_info=True)
