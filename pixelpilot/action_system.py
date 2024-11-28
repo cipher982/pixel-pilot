@@ -1,9 +1,12 @@
 import base64
+import json
 import subprocess
 import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Annotated
+from typing import Any
+from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
@@ -14,9 +17,9 @@ import numpy as np
 import torch
 import yaml
 from langchain_core.messages import AIMessage
+from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END
 from langgraph.graph import StateGraph
@@ -35,8 +38,8 @@ logger = setup_logger(__name__)
 # Semantic models
 CAPTION_MODEL = "florence"
 # CAPTION_MODEL = "blip"
-ENABLE_FLORENCE_CAPABILITY = True
-DECISION_MODEL = "gpt-4o-2024-08-06"
+ENABLE_FLORENCE_CAPABILITY = False
+# DECISION_MODEL = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 5
 
 
@@ -79,17 +82,24 @@ class ActionResponse(BaseModel):
 
 
 class ActionSystem:
+    """Action system for automating UI interactions."""
+
     def __init__(
         self,
         task_profile: Optional[str] = None,
         instructions: Optional[str] = None,
+        llm_provider: str = "tgi",  # "openai" or "tgi"
+        llm_config: Optional[Dict[str, Any]] = None,
         no_audio: bool = False,
         debug: bool = False,
         use_parser: bool = False,
         enable_chains: bool = False,
         use_chrome: bool = False,
     ):
-        # Set basic attributes first
+        """Initialize the action system."""
+        # if task_profile is None or instructions is None:
+        #     raise ValueError("task_profile and instructions must be provided")
+
         self.debug = debug
         self.use_parser = use_parser
         self.enable_chains = enable_chains
@@ -97,7 +107,17 @@ class ActionSystem:
 
         # Then load config and create models
         self.config = self._load_task_config(task_profile, instructions)
-        self.llm = ChatOpenAI(model=DECISION_MODEL).with_structured_output(ActionResponse)
+
+        # Initialize LLM based on provider
+        self.llm_provider = llm_provider
+        if llm_provider == "tgi":
+            from text_generation import Client
+
+            self.llm = Client(llm_config.get("url", "http://jelly:8080"))  # type: ignore
+        else:  # openai
+            from langchain_openai import ChatOpenAI
+
+            self.llm = ChatOpenAI(**llm_config or {}).with_structured_output(ActionResponse)
 
         # Initialize placeholders for all models
         self._yolo_model = None
@@ -172,27 +192,6 @@ class ActionSystem:
             ).to(self.device)
             logger.info("Florence caption model loaded successfully")
         return {"processor": self._florence_processor, "model": self._florence_model}
-
-    # @property
-    # def blip_models(self):
-    #     """Lazy load BLIP models only when needed"""
-    #     if self._blip_processor is None or self._blip_model is None:
-    #         from transformers import Blip2ForConditionalGeneration
-    #         from transformers import Blip2Processor
-
-    #         logger.info("Loading BLIP-2 models...")
-    #         model_name = "Salesforce/blip2-opt-2.7b"
-
-    #         self._blip_processor = Blip2Processor.from_pretrained(model_name)
-    #         logger.info("BLIP-2 processor loaded successfully")
-
-    #         self._blip_model = Blip2ForConditionalGeneration.from_pretrained(
-    #             model_name,
-    #             torch_dtype=torch.float16,
-    #             device_map=self.device,
-    #         )
-    #         logger.info("BLIP-2 caption model loaded successfully")
-    #     return {"processor": self._blip_processor, "model": self._blip_model}
 
     def setup(self) -> bool:
         """Setup the agent and ensure all components are ready."""
@@ -420,6 +419,41 @@ class ActionSystem:
         state["messages"] = messages[-MAX_MESSAGES:]
         return state
 
+    def _get_llm_response(self, messages: List[BaseMessage]) -> Dict[str, Any]:
+        """Get response from LLM."""
+        if self.llm_provider == "tgi":
+            # Convert messages to text format for TGI
+            prompt = ""
+            for message in messages:
+                if isinstance(message, SystemMessage):
+                    prompt += f"<|system|>{message.content}</s>\n"
+                elif isinstance(message, HumanMessage):
+                    prompt += f"<|human|>{message.content}</s>\n"
+                elif isinstance(message, AIMessage):
+                    prompt += f"<|assistant|>{message.content}</s>\n"
+
+            # Get response from TGI
+            response = self.llm.generate(
+                prompt,
+                max_new_tokens=1024,
+                temperature=0.7,
+                top_p=0.95,
+            ).generated_text
+
+            # Parse JSON from response
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON from response: {response}")
+                return {"actions": []}
+        else:
+            # Use LangChain's structured output for other providers
+            try:
+                return self.llm.invoke(messages)
+            except Exception as e:
+                logger.error(f"LLM invocation failed: {str(e)}", exc_info=True)
+                return {"actions": []}
+
     @log_runtime
     def decide_action(self, state: State, use_parser: bool = True) -> State:
         """Decide action based on specified analysis mode."""
@@ -430,7 +464,7 @@ class ActionSystem:
         else:
             state = self.analyze_raw_image(state)
 
-        # Build the prompt
+        # Get response from LLM
         actions_description = "\n".join(
             [f"- {name}: {description}" for name, description in self.config["actions"].items()]
         )
@@ -457,35 +491,26 @@ class ActionSystem:
         )
 
         messages = [system_message] + state.get("messages", [])
+        response = self._get_llm_response(messages)
+        state["actions"] = response.get("actions", [])
 
-        try:
-            response = self.llm.invoke(messages)
+        # Add AI message with complete context
+        action_details = []
+        for action in state["actions"]:
+            params_str = ", ".join(f"{k}={v}" for k, v in action["parameters"].items())
+            logger.info(f"Decided action: {action['action']} ({params_str}) - {action['description']}")
 
-            # Handle list of actions
-            state["actions"] = [action.model_dump() for action in response.actions]  # type: ignore
-            logger.info(f"Decided actions: {state['actions']}")
+            # Build detailed action message with reasoning
+            action_msg = f"{action['action'].upper()}"
+            if action["parameters"]:
+                param_details = [f"{k}={v}" for k, v in action["parameters"].items()]
+                action_msg += f" ({', '.join(param_details)})"
+            action_msg += f" - {action['description']}"
+            action_details.append(action_msg)
 
-            action_details = []
-            for action in response.actions:  # type: ignore
-                action_dict = action.model_dump()
-                params_str = ", ".join(f"{k}={v}" for k, v in action_dict["parameters"].items())
-                logger.info(f"Decided action: {action_dict['action']} ({params_str}) - {action_dict['description']}")
-
-                # Build detailed action message with reasoning
-                action_msg = f"{action_dict['action'].upper()}"
-                if action_dict["parameters"]:
-                    param_details = [f"{k}={v}" for k, v in action_dict["parameters"].items()]
-                    action_msg += f" ({', '.join(param_details)})"
-                action_msg += f" - {action_dict['description']}"
-                action_details.append(action_msg)
-
-            # Add AI message with complete context
-            message = "Actions decided:\n" + "\n→ ".join(action_details)
-            state["messages"].append(AIMessage(content=message))
-
-        except Exception as e:
-            logger.error(f"Action decision failed: {str(e)}", exc_info=True)
-            state["actions"] = [{"action": "end", "description": "Error encountered", "parameters": {}}]
+        # Add AI message with complete context
+        message = "Actions decided:\n" + "\n→ ".join(action_details)
+        state["messages"].append(AIMessage(content=message))
 
         return state
 
