@@ -10,6 +10,7 @@ from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
+from typing import Sequence
 from typing import TypedDict
 from typing import Union
 
@@ -38,23 +39,9 @@ logger = setup_logger(__name__)
 # Semantic models
 CAPTION_MODEL = "florence"
 # CAPTION_MODEL = "blip"
-ENABLE_FLORENCE_CAPABILITY = False
+# ENABLE_FLORENCE_CAPABILITY = False
 # DECISION_MODEL = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 5
-
-
-class State(TypedDict):
-    """Define the state schema and reducers."""
-
-    messages: Annotated[list, add_messages]
-    screenshot: Optional[Image.Image]
-    audio_text: Optional[str]
-    actions: list[dict]
-    parameters: dict
-    context: dict
-    labeled_img: Optional[str]  # base64 encoded image
-    label_coordinates: Optional[dict]
-    parsed_content_list: Optional[list]
 
 
 class ClickParameters(BaseModel):
@@ -81,6 +68,20 @@ class ActionResponse(BaseModel):
     actions: List[Action]
 
 
+class State(TypedDict):
+    """Define the state schema and reducers."""
+
+    messages: Annotated[list, add_messages]
+    screenshot: Optional[Image.Image]
+    audio_text: Optional[str]
+    actions: List[Action]
+    parameters: dict
+    context: dict
+    labeled_img: Optional[str]  # base64 encoded image
+    label_coordinates: Optional[dict]
+    parsed_content_list: Optional[list]
+
+
 class ActionSystem:
     """Action system for automating UI interactions."""
 
@@ -88,7 +89,7 @@ class ActionSystem:
         self,
         task_profile: Optional[str] = None,
         instructions: Optional[str] = None,
-        llm_provider: str = "tgi",  # "openai" or "tgi"
+        llm_provider: str = "",
         llm_config: Optional[Dict[str, Any]] = None,
         no_audio: bool = False,
         debug: bool = False,
@@ -114,15 +115,17 @@ class ActionSystem:
             from text_generation import Client
 
             self.llm = Client(llm_config.get("url", "http://jelly:8080"))  # type: ignore
-        else:  # openai
+        elif llm_provider == "openai":
             from langchain_openai import ChatOpenAI
 
-            self.llm = ChatOpenAI(**llm_config or {}).with_structured_output(ActionResponse)
+            self.llm = ChatOpenAI(model="gpt-4o").with_structured_output(ActionResponse)
+        else:
+            raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
         # Initialize placeholders for all models
         self._yolo_model = None
-        self._florence_processor = None if ENABLE_FLORENCE_CAPABILITY else False
-        self._florence_model = None if ENABLE_FLORENCE_CAPABILITY else False
+        self._florence_processor = None if self.use_parser else False
+        self._florence_model = None if self.use_parser else False
         self._blip_processor = None
         self._blip_model = None
 
@@ -174,7 +177,7 @@ class ActionSystem:
     @property
     def florence_models(self):
         """Lazy load Florence models only when needed"""
-        if not ENABLE_FLORENCE_CAPABILITY:
+        if not self.use_parser:
             return None
 
         if self._florence_processor is None or self._florence_model is None:
@@ -253,9 +256,7 @@ class ActionSystem:
         workflow.add_edge("capture_state", "decide_action")
         workflow.add_conditional_edges(
             "decide_action",
-            lambda state: "end"
-            if any(a.get("action", "").lower() == "end" for a in state.get("actions", []))
-            else "execute",
+            lambda state: "end" if any(a.action == "end" for a in state["actions"]) else "execute",
             {"end": END, "execute": "execute_action"},
         )
         workflow.add_edge("execute_action", "capture_state")
@@ -419,7 +420,7 @@ class ActionSystem:
         state["messages"] = messages[-MAX_MESSAGES:]
         return state
 
-    def _get_llm_response(self, messages: List[BaseMessage]) -> Dict[str, Any]:
+    def _get_llm_response(self, messages: Sequence[BaseMessage]) -> ActionResponse:
         """Get response from LLM."""
         if self.llm_provider == "tgi":
             # Convert messages to text format for TGI
@@ -443,16 +444,15 @@ class ActionSystem:
             # Parse JSON from response
             try:
                 return json.loads(response)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse JSON from response: {response}")
-                return {"actions": []}
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON from response: {response}", exc_info=True)
+                raise e
         else:
-            # Use LangChain's structured output for other providers
             try:
                 return self.llm.invoke(messages)
             except Exception as e:
                 logger.error(f"LLM invocation failed: {str(e)}", exc_info=True)
-                return {"actions": []}
+                raise e
 
     @log_runtime
     def decide_action(self, state: State, use_parser: bool = True) -> State:
@@ -492,20 +492,20 @@ class ActionSystem:
 
         messages = [system_message] + state.get("messages", [])
         response = self._get_llm_response(messages)
-        state["actions"] = response.get("actions", [])
+        state["actions"] = response.actions
 
         # Add AI message with complete context
         action_details = []
         for action in state["actions"]:
-            params_str = ", ".join(f"{k}={v}" for k, v in action["parameters"].items())
-            logger.info(f"Decided action: {action['action']} ({params_str}) - {action['description']}")
+            params_str = ", ".join(f"{k}={v}" for k, v in action.parameters)
+            logger.info(f"Decided action: {action.action} ({params_str}) - {action.description}")
 
             # Build detailed action message with reasoning
-            action_msg = f"{action['action'].upper()}"
-            if action["parameters"]:
-                param_details = [f"{k}={v}" for k, v in action["parameters"].items()]
+            action_msg = f"{action.action.upper()}"
+            if action.parameters:
+                param_details = [f"{k}={v}" for k, v in action.parameters]
                 action_msg += f" ({', '.join(param_details)})"
-            action_msg += f" - {action['description']}"
+            action_msg += f" - {action.description}"
             action_details.append(action_msg)
 
         # Add AI message with complete context
@@ -528,88 +528,77 @@ class ActionSystem:
 
         for action_obj in actions:
             # Access as dictionary since we stored it that way in decide_action
-            action = action_obj["action"].lower()
+            action = action_obj.action
             if action == "end":
                 logger.info("END action received - terminating")
                 state["actions"] = []
                 state["messages"].append(SystemMessage(content="Task ended."))
                 return state
 
-            parameters = action_obj.get("parameters", {})
+            parameters = action_obj.parameters
             logger.info(f"Executing action: {action} with parameters: {parameters}")
 
             # More detailed logging before execution
             if action == "click":
-                element_id = parameters.get("elementId") or parameters.get("element_id")
-                if element_id and element_id in state["label_coordinates"]:
-                    parsed_content = state.get("parsed_content_list", [])
-                    assert parsed_content
-                    element_label = next(
-                        (content for content in parsed_content if content.startswith(f"{element_id}:")),
-                        f"Element {element_id}",
-                    )
-                    logger.info(f"Executing click on {element_label}")
+                if isinstance(parameters, ClickParameters):
+                    element_id = parameters.elementId
                 else:
-                    logger.warning(f"Element ID {element_id} not found in coordinates")
+                    element_id = parameters.get("elementId") or parameters.get("element_id")
+
+                if not element_id or element_id not in state["label_coordinates"]:
+                    raise ValueError(f"Invalid element_id: {element_id}")
+
+                rel_coords = state["label_coordinates"][element_id]  # type: ignore
+                rel_x = rel_coords[0] + (rel_coords[2] / 2)
+                rel_y = rel_coords[1] + (rel_coords[3] / 2)
+                abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
+
+                if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
+                    raise RuntimeError("Click action failed")
+                time.sleep(0.2)
+                logger.info(f"Clicked at ({abs_x}, {abs_y})")
+
+            elif action == "wait":
+                if isinstance(parameters, WaitParameters):
+                    duration = parameters.duration
+                else:
+                    duration = parameters.get("duration", 2.0)
+                time.sleep(duration)
+                logger.info(f"Waited for {duration} seconds")
+
+            elif action == "scroll":
+                import pyautogui
+
+                # Focus window first
+                window_info = self.current_state["context"]["window_info"]
+                script = f"""
+                    tell application "System Events"
+                        tell process "{window_info['kCGWindowOwnerName']}"
+                            set frontmost to true
+                        end tell
+                    end tell
+                """
+                subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                time.sleep(0.2)
+
+                # Scroll down
+                amount = parameters.get("amount", -850)  # Use default if not specified
+                pyautogui.scroll(amount)  # Negative values scroll down
+                time.sleep(0.5)  # Wait for scroll to complete
+                logger.info(f"Scrolled by {amount} units")
+
             else:
-                params_str = ", ".join(f"{k}={v}" for k, v in parameters.items())
-                logger.info(f"Executing {action} with {params_str}")
+                raise ValueError(f"Unknown action: {action}")
 
-            try:
-                match action:
-                    case "click":
-                        element_id = parameters.get("elementId") or parameters.get("element_id")
-                        if not element_id or element_id not in state["label_coordinates"]:
-                            raise ValueError(f"Invalid element_id: {element_id}")
-
-                        rel_coords = state["label_coordinates"][element_id]  # type: ignore
-                        rel_x = rel_coords[0] + (rel_coords[2] / 2)
-                        rel_y = rel_coords[1] + (rel_coords[3] / 2)
-                        abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
-
-                        if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
-                            raise RuntimeError("Click action failed")
-                        time.sleep(0.2)
-
-                    case "wait":
-                        time.sleep(parameters.get("duration", 2.0))
-
-                    case "scroll":
-                        import pyautogui
-
-                        # Focus window first
-                        window_info = self.current_state["context"]["window_info"]
-                        script = f"""
-                            tell application "System Events"
-                                tell process "{window_info['kCGWindowOwnerName']}"
-                                    set frontmost to true
-                                end tell
-                            end tell
-                        """
-                        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-                        time.sleep(0.2)
-
-                        # Scroll down
-                        amount = parameters.get("amount", -850)  # Use default if not specified
-                        pyautogui.scroll(amount)  # Negative values scroll down
-                        time.sleep(0.5)  # Wait for scroll to complete
-
-                    case _:
-                        raise ValueError(f"Unknown action: {action}")
-
-                context["last_action"] = action
-                logger.info(f"Action {action} completed successfully")
-
-            except Exception as e:
-                logger.error(f"Action execution failed: {str(e)}")
-                context["last_error"] = str(e)
-                break
+            context["last_action"] = action
 
         # Clean up state after all actions complete
         state["actions"] = []
         state["context"] = context
 
-        logger.info("All actions completed successfully")
+        if not context.get("last_error"):
+            logger.info("All actions completed successfully")
+
         return state
 
     # Helper methods
@@ -651,7 +640,6 @@ class ActionSystem:
             pyautogui.moveTo(x, y, duration=duration)
             pyautogui.click()
 
-            logger.info(f"Clicked at ({x}, {y})")
             return True
 
         except Exception as e:

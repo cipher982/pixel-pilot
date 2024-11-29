@@ -28,8 +28,9 @@ def main(
     action_system = ActionSystem(
         task_profile=task_profile,
         instructions=instructions,
-        llm_provider="tgi",
-        llm_config={"url": "http://jelly:8080"},
+        llm_provider="openai",
+        # llm_provider="tgi",
+        # llm_config={"url": "http://jelly:8080"},
         no_audio=no_audio,
         debug=debug,
         use_parser=use_parser,
