@@ -28,6 +28,7 @@ from langgraph.graph.message import add_messages
 from PIL import Image
 from pydantic import BaseModel
 from pydantic import Field
+from text_generation import Client
 
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
@@ -422,7 +423,7 @@ class ActionSystem:
 
     def _get_llm_response(self, messages: Sequence[BaseMessage]) -> ActionResponse:
         """Get response from LLM."""
-        if self.llm_provider == "tgi":
+        if isinstance(self.llm, Client):  # TGI case
             # Convert messages to text format for TGI
             prompt = ""
             for message in messages:
@@ -443,16 +444,18 @@ class ActionSystem:
 
             # Parse JSON from response
             try:
-                return json.loads(response)
+                json_response = json.loads(response)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON from response: {response}", exc_info=True)
                 raise e
-        else:
+        else:  # OpenAI/LangChain case
             try:
-                return self.llm.invoke(messages)
+                json_response = self.llm.invoke(messages)
             except Exception as e:
                 logger.error(f"LLM invocation failed: {str(e)}", exc_info=True)
                 raise e
+
+        return ActionResponse(**json_response)
 
     @log_runtime
     def decide_action(self, state: State, use_parser: bool = True) -> State:
@@ -540,10 +543,9 @@ class ActionSystem:
 
             # More detailed logging before execution
             if action == "click":
-                if isinstance(parameters, ClickParameters):
-                    element_id = parameters.elementId
-                else:
-                    element_id = parameters.get("elementId") or parameters.get("element_id")
+                if not isinstance(parameters, ClickParameters):
+                    raise ValueError(f"Invalid parameters for click action: {parameters}")
+                element_id = parameters.elementId
 
                 if not element_id or element_id not in state["label_coordinates"]:
                     raise ValueError(f"Invalid element_id: {element_id}")
@@ -571,14 +573,24 @@ class ActionSystem:
 
                 # Focus window first
                 window_info = self.current_state["context"]["window_info"]
+                if not window_info:
+                    logger.error("No window info stored")
+                    return False
+
+                # Simple keystroke command for each key
+                key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
+
                 script = f"""
                     tell application "System Events"
                         tell process "{window_info['kCGWindowOwnerName']}"
                             set frontmost to true
+                            {key_commands}
                         end tell
                     end tell
                 """
-                subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+
+                result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                logger.info(f"AppleScript result: {result.stdout}")
                 time.sleep(0.2)
 
                 # Scroll down
