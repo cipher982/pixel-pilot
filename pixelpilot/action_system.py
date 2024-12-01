@@ -445,17 +445,16 @@ class ActionSystem:
             # Parse JSON from response
             try:
                 json_response = json.loads(response)
+                return ActionResponse(**json_response)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON from response: {response}", exc_info=True)
                 raise e
         else:  # OpenAI/LangChain case
             try:
-                json_response = self.llm.invoke(messages)
+                return self.llm.invoke(messages)  # type: ignore
             except Exception as e:
                 logger.error(f"LLM invocation failed: {str(e)}", exc_info=True)
                 raise e
-
-        return ActionResponse(**json_response)
 
     @log_runtime
     def decide_action(self, state: State, use_parser: bool = True) -> State:
