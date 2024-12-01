@@ -547,10 +547,15 @@ class ActionSystem:
                     raise ValueError(f"Invalid parameters for click action: {parameters}")
                 element_id = parameters.elementId
 
-                if not element_id or element_id not in state["label_coordinates"]:
+                if not element_id:
                     raise ValueError(f"Invalid element_id: {element_id}")
 
-                rel_coords = state["label_coordinates"][element_id]  # type: ignore
+                label_coords = state["label_coordinates"]
+                if label_coords is None or element_id not in label_coords:
+                    raise ValueError(f"Element id {element_id} not found in label coordinates")
+
+                rel_coords = label_coords[element_id]
+
                 rel_x = rel_coords[0] + (rel_coords[2] / 2)
                 rel_y = rel_coords[1] + (rel_coords[3] / 2)
                 abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
@@ -564,7 +569,7 @@ class ActionSystem:
                 if isinstance(parameters, WaitParameters):
                     duration = parameters.duration
                 else:
-                    duration = parameters.get("duration", 2.0)
+                    raise ValueError(f"Invalid parameters for wait action: {parameters}")
                 time.sleep(duration)
                 logger.info(f"Waited for {duration} seconds")
 
@@ -575,7 +580,7 @@ class ActionSystem:
                 window_info = self.current_state["context"]["window_info"]
                 if not window_info:
                     logger.error("No window info stored")
-                    return False
+                    raise RuntimeError("Window info not found")
 
                 # Simple keystroke command for each key
                 key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
@@ -594,7 +599,9 @@ class ActionSystem:
                 time.sleep(0.2)
 
                 # Scroll down
-                amount = parameters.get("amount", -850)  # Use default if not specified
+                if not isinstance(parameters, ScrollParameters):
+                    raise ValueError(f"Invalid parameters for scroll action: {parameters}")
+                amount = parameters.amount
                 pyautogui.scroll(amount)  # Negative values scroll down
                 time.sleep(0.5)  # Wait for scroll to complete
                 logger.info(f"Scrolled by {amount} units")
