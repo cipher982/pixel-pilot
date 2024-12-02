@@ -95,16 +95,11 @@ class ActionSystem:
         no_audio: bool = False,
         debug: bool = False,
         use_parser: bool = False,
-        enable_chains: bool = False,
         use_chrome: bool = False,
     ):
         """Initialize the action system."""
-        # if task_profile is None or instructions is None:
-        #     raise ValueError("task_profile and instructions must be provided")
-
         self.debug = debug
         self.use_parser = use_parser
-        self.enable_chains = enable_chains
         self.use_chrome = use_chrome
 
         # Then load config and create models
