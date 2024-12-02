@@ -32,6 +32,7 @@ from text_generation import Client
 
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
+from pixelpilot.utils import get_som_labeled_img
 from pixelpilot.utils import log_runtime
 from pixelpilot.window_capture import WindowCapture
 
@@ -146,6 +147,9 @@ class ActionSystem:
                 "last_action": None,
                 "window_info": None,
             },
+            "label_coordinates": {},  # Initialize empty label coordinates
+            "labeled_img": None,
+            "parsed_content_list": [],
         }
 
         # Initialize and compile the graph
@@ -295,53 +299,56 @@ class ActionSystem:
         screenshot = self.window_capture.capture_window(self.window_info)  # type: ignore
         state["screenshot"] = screenshot
 
+        if screenshot is None:
+            return state
+
+        # Convert PIL Image to numpy array once
+        screenshot_np = np.array(screenshot)
+
+        # Process with OCR if parser is enabled
+        ocr_text = []
+        ocr_bbox = None
         if self.use_parser:
             from pixelpilot.utils import check_ocr_box
-            from pixelpilot.utils import get_som_labeled_img
 
-            logger.info("Processing with OmniParser...")
-
-            # Convert PIL Image to numpy array once
-            screenshot_np = np.array(screenshot)
-
-            # Process with OCR
-            logger.info("Checking OCR box...")
+            logger.info("Processing with OCR...")
             ocr_bbox_rslt, _ = check_ocr_box(
-                screenshot_np,  # Pass numpy array
+                screenshot_np,
                 display_img=False,
                 output_bb_format="xyxy",
                 goal_filtering=None,
                 easyocr_args={"paragraph": False, "text_threshold": 0.9},
                 use_paddleocr=False,
             )
-            text, ocr_bbox = ocr_bbox_rslt
-            logger.info(f"OCR text: {text}")
+            ocr_text, ocr_bbox = ocr_bbox_rslt
+            logger.info(f"OCR text: {ocr_text}")
 
-            # Process with object detection
-            box_threshold = 0.05
-            iou_threshold = 0.1
+        # Run object detection with YOLO and optionally Florence
+        box_threshold = 0.05
+        iou_threshold = 0.1
 
-            logger.info("Getting labeled image...")
-            labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
-                screenshot_np,
-                self.yolo_model,
-                box_threshold=box_threshold,
-                output_coord_in_ratio=True,
-                ocr_bbox=ocr_bbox,
-                draw_bbox_config={
-                    "text_scale": 0.8,
-                    "text_thickness": 2,
-                    "text_padding": 3,
-                    "thickness": 3,
-                },
-                caption_model_processor=self.caption_model,
-                ocr_text=text,
-                iou_threshold=iou_threshold,
-            )
-            logger.info("Labeled image obtained successfully")
-            state["labeled_img"] = labeled_img
-            state["label_coordinates"] = label_coordinates
-            state["parsed_content_list"] = parsed_content_list
+        logger.info("Getting labeled image...")
+        labeled_img, label_coordinates, parsed_content_list = get_som_labeled_img(
+            screenshot_np,
+            self.yolo_model,
+            box_threshold=box_threshold,
+            output_coord_in_ratio=True,
+            ocr_bbox=ocr_bbox,
+            draw_bbox_config={
+                "text_scale": 0.8,
+                "text_thickness": 2,
+                "text_padding": 3,
+                "thickness": 3,
+            },
+            caption_model_processor=self.caption_model if self.use_parser else None,
+            ocr_text=ocr_text,
+            iou_threshold=iou_threshold,
+        )
+        logger.info("Labeled image obtained successfully")
+
+        state["labeled_img"] = labeled_img
+        state["label_coordinates"] = label_coordinates
+        state["parsed_content_list"] = parsed_content_list if self.use_parser else []
 
         return state
 
