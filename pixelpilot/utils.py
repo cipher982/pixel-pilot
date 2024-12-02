@@ -218,9 +218,7 @@ def predict_yolo(model, image_np, box_threshold):
     )
     boxes = result[0].boxes.xyxy
     conf = result[0].boxes.conf
-    phrases = [str(i) for i in range(len(boxes))]
-
-    return boxes, conf, phrases
+    return boxes, conf
 
 
 @log_runtime
@@ -248,31 +246,45 @@ def get_som_labeled_img(
     # Process image and get boxes
     image_source = process_image_for_detection(image_np)
     h, w = image_source.shape[:2]
-    xyxy, logits, phrases = get_detection_boxes(image_source, model, box_threshold)
+    xyxy, _ = get_detection_boxes(image_source, model, box_threshold)
 
     # Process OCR boxes
     filtered_boxes = process_ocr_boxes(xyxy, h, w, ocr_bbox, iou_threshold)
 
     # Get content labels (semantic processing only if Florence is enabled)
-    parsed_content_merged = [f"Text Box ID {i}: {txt}" for i, txt in enumerate(ocr_text)]
+    parsed_content_merged = []
+    box_labels = []  # Store labels for each box
+
+    # Add OCR text boxes first
+    for i, txt in enumerate(ocr_text):
+        parsed_content_merged.append(f"Text Box ID {i}: {txt}")
+        box_labels.append(txt)  # Use actual text as label
+
+    # Process icon boxes
     if caption_model_processor is not None:
         parsed_content_icon = get_parsed_content_icon(
             filtered_boxes, ocr_bbox, image_source, caption_model_processor, prompt=prompt
         )
         icon_start = len(ocr_text)
-        parsed_content_icon_ls = [
-            f"Icon Box ID {str(i+icon_start)}: {txt}" for i, txt in enumerate(parsed_content_icon)
-        ]
-        parsed_content_merged.extend(parsed_content_icon_ls)
+        for i, txt in enumerate(parsed_content_icon):
+            box_id = i + icon_start
+            parsed_content_merged.append(f"Icon Box ID {box_id}: {txt}")
+            box_labels.append(txt)  # Use Florence caption as label
+    else:
+        # If no caption model, use numeric IDs
+        icon_boxes = filtered_boxes[len(ocr_text) :]
+        for i in range(len(icon_boxes)):
+            box_id = i + len(ocr_text)
+            box_labels.append(str(box_id))
 
     # Prepare final output
     filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
-    phrases = [i for i in range(len(filtered_boxes))]
+
     # Draw boxes and get coordinates
     annotated_frame, label_coordinates = draw_boxes_and_labels(
         image_source,
         filtered_boxes,
-        phrases,
+        box_labels,  # Use our semantic labels
         draw_bbox_config or {"text_scale": text_scale, "text_padding": text_padding},
     )
 
@@ -306,14 +318,13 @@ def process_image_for_detection(image_np):
 def get_detection_boxes(image_source, model, box_threshold):
     """Get detection boxes from YOLO model."""
     h, w = image_source.shape[:2]
-    xyxy, logits, phrases = predict_yolo(
+    xyxy, logits = predict_yolo(
         model=model,
         image_np=image_source,
         box_threshold=box_threshold,
     )
     xyxy = xyxy / torch.Tensor([w, h, w, h]).to(xyxy.device)
-    phrases = [str(i) for i in range(len(phrases))]
-    return xyxy, logits, phrases
+    return xyxy, logits
 
 
 @log_runtime

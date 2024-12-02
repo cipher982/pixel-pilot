@@ -355,20 +355,33 @@ class ActionSystem:
     def analyze_raw_image(self, state: State) -> State:
         """Analyze using raw screenshot with GPT-4V."""
         messages = state.get("messages", [])
+        labeled_img = state.get("labeled_img")
+        label_coordinates = state.get("label_coordinates", {})
 
-        if state["screenshot"]:
-            base64_image = self._encode_image(state["screenshot"])
+        if labeled_img:
+            # Decode base64 string back to image, compress, then re-encode
+            img_data = base64.b64decode(labeled_img)
+            img = Image.open(BytesIO(img_data))
+            compressed_base64 = self._encode_image(img)
             timestamp = time.strftime("%H:%M:%S")
+
+            # Create a list of available box IDs
+            assert label_coordinates, "label_coordinates should not be empty"
+            available_boxes = sorted(label_coordinates.keys())
+            box_info = "\n".join([f"Box {box_id}" for box_id in available_boxes])
 
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
                         {
                             "type": "text",
                             "text": dedent(f"""
                                 New screenshot taken at {timestamp}.
-                                What UI elements do you see and what action should we take?
+                                Available UI elements:
+                                {box_info}
+                                
+                                What action should we take based on these elements?
                             """).strip(),
                         },
                     ]
@@ -483,12 +496,17 @@ class ActionSystem:
                 Available actions:
                 {actions_description}
 
+                When clicking, you MUST use one of the available box IDs shown in the screenshot.
+                The box IDs will be either:
+                1. Semantic labels (if parser is enabled)
+                2. Numeric IDs like "0", "1", "2" (if parser is disabled)
+
                 Return a JSON object with:
                 - "actions": A list of actions, each with:
                 - "action": One of the available actions
                 - "description": Why you chose this action
                 - "parameters": Required parameters for the chosen action
-                    - For 'click': Must include 'elementId'
+                    - For 'click': Must include 'elementId' matching an available box ID
                     - For 'wait': Optional 'duration' in seconds (default: 2.0)
                     - For 'end': No parameters needed
             """).strip()
@@ -552,13 +570,26 @@ class ActionSystem:
                     raise ValueError(f"Invalid element_id: {element_id}")
 
                 label_coords = state["label_coordinates"]
-                if label_coords is None or element_id not in label_coords:
+                if label_coords is None:
+                    raise ValueError("No label coordinates found in state")
+
+                # Try exact match first
+                coords = label_coords.get(element_id)
+
+                # If not found and we're not using parser, try numeric IDs
+                if coords is None and not self.use_parser:
+                    # Try to find a numeric ID that matches
+                    for i in range(len(label_coords)):
+                        if coords := label_coords.get(str(i)):
+                            # Found a match, use these coordinates
+                            logger.info(f"Using numeric ID {i} for click target")
+                            break
+
+                if coords is None:
                     raise ValueError(f"Element id {element_id} not found in label coordinates")
 
-                rel_coords = label_coords[element_id]
-
-                rel_x = rel_coords[0] + (rel_coords[2] / 2)
-                rel_y = rel_coords[1] + (rel_coords[3] / 2)
+                rel_x = coords[0] + (coords[2] / 2)
+                rel_y = coords[1] + (coords[3] / 2)
                 abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
 
                 if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
