@@ -184,7 +184,7 @@ def annotate(
         scene=annotated_frame, detections=detections, labels=labels, image_size=(w, h)
     )
 
-    label_coordinates = {f"{phrase}": v for phrase, v in zip(phrases, xywh)}
+    label_coordinates = {str(i): v for i, v in enumerate(xywh)}
     return annotated_frame, label_coordinates
 
 
@@ -257,8 +257,9 @@ def get_som_labeled_img(
 
     # Add OCR text boxes first
     for i, txt in enumerate(ocr_text):
-        parsed_content_merged.append(f"Text Box ID {i}: {txt}")
-        box_labels.append(txt)  # Use actual text as label
+        parsed_content_merged.append(f"Box {i}: {txt}")
+        box_labels.append(f"{i}: {txt}")  # Both numeric and semantic
+        logger.info(f"Added OCR box {i}: {txt}")  # Debug logging
 
     # Process icon boxes
     if caption_model_processor is not None:
@@ -268,14 +269,16 @@ def get_som_labeled_img(
         icon_start = len(ocr_text)
         for i, txt in enumerate(parsed_content_icon):
             box_id = i + icon_start
-            parsed_content_merged.append(f"Icon Box ID {box_id}: {txt}")
-            box_labels.append(txt)  # Use Florence caption as label
+            parsed_content_merged.append(f"Box {box_id}: {txt}")
+            box_labels.append(f"{box_id}: {txt}")  # Both numeric and semantic
+            logger.info(f"Added icon box {box_id}: {txt}")  # Debug logging
     else:
         # If no caption model, use numeric IDs
         icon_boxes = filtered_boxes[len(ocr_text) :]
         for i in range(len(icon_boxes)):
             box_id = i + len(ocr_text)
-            box_labels.append(str(box_id))
+            box_labels.append(str(box_id))  # Just numeric
+            logger.info(f"Added numeric box {box_id}")  # Debug logging
 
     # Prepare final output
     filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
@@ -284,7 +287,7 @@ def get_som_labeled_img(
     annotated_frame, label_coordinates = draw_boxes_and_labels(
         image_source,
         filtered_boxes,
-        box_labels,  # Use our semantic labels
+        box_labels,  # Use combined labels
         draw_bbox_config or {"text_scale": text_scale, "text_padding": text_padding},
     )
 

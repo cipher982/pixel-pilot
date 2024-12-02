@@ -496,17 +496,20 @@ class ActionSystem:
                 Available actions:
                 {actions_description}
 
-                When clicking, you MUST use one of the available box IDs shown in the screenshot.
-                The box IDs will be either:
-                1. Semantic labels (if parser is enabled)
-                2. Numeric IDs like "0", "1", "2" (if parser is disabled)
+                When clicking, you MUST use the box ID from the labeled image.
+                The boxes are labeled in order of detection, starting from 0.
+                Each box will show both its ID and content, like:
+                - "0: File"
+                - "1: What is the capital of France?"
+                - "2: Paris"
+                etc.
 
                 Return a JSON object with:
                 - "actions": A list of actions, each with:
                 - "action": One of the available actions
                 - "description": Why you chose this action
                 - "parameters": Required parameters for the chosen action
-                    - For 'click': Must include 'elementId' matching an available box ID
+                    - For 'click': Must include 'elementId' matching a box ID from the image
                     - For 'wait': Optional 'duration' in seconds (default: 2.0)
                     - For 'end': No parameters needed
             """).strip()
