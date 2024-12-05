@@ -25,25 +25,26 @@ class WindowCapture:
             self.debug_image = Image.open(DEBUG_IMAGE)
 
     @staticmethod
-    def select_window_interactive(use_chrome: bool = False) -> Optional[Dict[str, Any]]:
+    def select_window_interactive(use_chrome: bool = False, use_firefox: bool = False) -> Optional[Dict[str, Any]]:
         """Interactive window selector that highlights windows as you move the mouse."""
         logger.info("Move your mouse over the window you want to capture and press Enter...")
 
         last_window = None  # Track the last window to prevent duplicate logging
 
-        if use_chrome:
-            """Quick hack to return Chrome window instead of interactive selection."""
+        if use_chrome or use_firefox:
+            """Quick hack to return browser window instead of interactive selection."""
             window_list = Quartz.CGWindowListCopyWindowInfo(
                 Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
                 Quartz.kCGNullWindowID,
             )
 
+            browser_name = "Google Chrome" if use_chrome else "Firefox"
             for window in window_list:
-                if window.get("kCGWindowOwnerName") == "Google Chrome":
-                    logger.info("Found Chrome window")
+                if window.get("kCGWindowOwnerName") == browser_name:
+                    logger.info(f"Found {browser_name} window")
                     return window
 
-            logger.error("No Chrome window found")
+            logger.error(f"No {browser_name} window found")
             return None
 
         while True:

@@ -97,11 +97,13 @@ class ActionSystem:
         debug: bool = False,
         use_parser: bool = False,
         use_chrome: bool = False,
+        use_firefox: bool = False,
     ):
         """Initialize the action system."""
         self.debug = debug
         self.use_parser = use_parser
         self.use_chrome = use_chrome
+        self.use_firefox = use_firefox
 
         # Then load config and create models
         self.config = self._load_task_config(task_profile, instructions)
@@ -202,7 +204,9 @@ class ActionSystem:
             return True
 
         logger.info("Please select the window you want to control...")
-        self.window_info = self.window_capture.select_window_interactive(use_chrome=self.use_chrome)
+        self.window_info = self.window_capture.select_window_interactive(
+            use_chrome=self.use_chrome, use_firefox=self.use_firefox
+        )
 
         if not self.window_info:
             logger.error("No window selected")

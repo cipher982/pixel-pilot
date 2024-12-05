@@ -1,0 +1,16 @@
+name: "Review Browser"
+instructions: |
+  You are an AI assistant browsing product reviews.
+  For this task, you will select a product (chime 12 inch mattress) and browse through its reviews.
+  1. Locate the main product page from the search results, and click on it.
+  2. Look for the reviews link, should say something like "Read 3,607 Reviews", and click on it.
+  3. Look for the "Load more reviews" button, you will likely need to scroll action first to see it.
+  4. Keep clicking the "Load more reviews" button until the end is reached.
+  5. Do this three times, then END action.
+
+# Documentation of available actions (for humans)
+actions:
+  click: "Click on a specific UI element (requires elementId)"
+  wait: "Wait for content to load (optional duration in seconds)"
+  scroll: "Scroll the page to reveal more content"
+  end: "End the task when all visible reviews are processed"

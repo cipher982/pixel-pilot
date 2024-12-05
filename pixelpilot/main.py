@@ -15,6 +15,7 @@ logger = setup_logger(__name__)
 @click.option("--instructions", "-i", help="Override task instructions")
 @click.option("--use-parser", is_flag=True, help="Use parser to analyze inputs")
 @click.option("--use-chrome", is_flag=True, help="Use Chrome window for capture")
+@click.option("--use-firefox", is_flag=True, help="Use Firefox window for capture")
 def main(
     enable_audio: bool = False,
     debug: bool = False,
@@ -22,6 +23,7 @@ def main(
     instructions: Optional[str] = None,
     use_parser: bool = False,
     use_chrome: bool = False,
+    use_firefox: bool = False,
 ):
     action_system = ActionSystem(
         task_profile=task_profile,
@@ -33,6 +35,7 @@ def main(
         debug=debug,
         use_parser=use_parser,
         use_chrome=use_chrome,
+        use_firefox=use_firefox,
     )
     action_system.run()
 
