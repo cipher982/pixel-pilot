@@ -278,7 +278,7 @@ def get_som_labeled_img(
         for i in range(len(icon_boxes)):
             box_id = i + len(ocr_text)
             box_labels.append(str(box_id))  # Just numeric
-            logger.info(f"Added numeric box {box_id}")  # Debug logging
+            # logger.info(f"Added numeric box {box_id}")  # Debug logging
 
     # Prepare final output
     filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")

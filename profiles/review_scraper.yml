@@ -1,16 +1,25 @@
 name: "Review Browser"
 instructions: |
   You are an AI assistant browsing product reviews.
-  For this task, you will select a product (chime 12 inch mattress) and browse through its reviews.
-  1. Locate the main product page from the search results, and click on it.
-  2. Look for the reviews link, should say something like "Read 3,607 Reviews", and click on it.
-  3. Look for the "Load more reviews" button, you will likely need to scroll action first to see it.
-  4. Keep clicking the "Load more reviews" button until the end is reached.
-  5. Do this three times, then END action.
+  For this task you will start at homepage of furniture store.
+  You will need to go through the first three items on the page (bed, sofa, dining set) under hot buys.
+  For each product (after clicking it):
+  1. Locate the reviews/ratings link/button, and click it. Something like "Read n reviews", DO NOT CLICK WRITE A REWVIEW.
+  2. Then press the back button (job done for that product).
+  3. Click the next product link.
+  4. Repeat until you have done all 3 products.
+  5. END action.
+
+  After you click each product link, use the description param to say which number you are on (1, 2, 3).
+  That way you keep track of which product you are doing next.
+  Do not try to send multiple actions at once, it is broken. Just do one at a time.
+
+  so the process is: click product 1, click reviews, back, click product 2, click reviews, back, click product 3, click reviews. END.
 
 # Documentation of available actions (for humans)
 actions:
   click: "Click on a specific UI element (requires elementId)"
   wait: "Wait for content to load (optional duration in seconds)"
   scroll: "Scroll the page to reveal more content"
+  back: "Navigate back to the previous page"
   end: "End the task when all visible reviews are processed"

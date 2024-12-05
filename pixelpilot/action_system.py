@@ -43,7 +43,7 @@ CAPTION_MODEL = "florence"
 # CAPTION_MODEL = "blip"
 # ENABLE_FLORENCE_CAPABILITY = False
 # DECISION_MODEL = "gpt-4o-2024-08-06"
-MAX_MESSAGES = 5
+MAX_MESSAGES = 10
 
 
 class ClickParameters(BaseModel):
@@ -53,17 +53,29 @@ class ClickParameters(BaseModel):
 class ScrollParameters(BaseModel):
     """Optional parameters for scroll action"""
 
-    amount: int = -400  # Negative values scroll down, positive up
+    amount: int = -3400  # Negative values scroll down, positive up
 
 
 class WaitParameters(BaseModel):
+    """Optional parameters for wait action"""
+
     duration: float = 2.0
 
 
+class BackParameters(BaseModel):
+    """Optional parameters for back action"""
+
+    pass
+
+
 class Action(BaseModel):
+    """Action schema"""
+
     description: str
-    action: Literal["click", "scroll", "wait", "end"]
-    parameters: Union[ClickParameters, WaitParameters, ScrollParameters, dict] = Field(default_factory=dict)
+    action: Literal["click", "scroll", "wait", "end", "back"]
+    parameters: Union[ClickParameters, WaitParameters, ScrollParameters, BackParameters, dict] = Field(
+        default_factory=dict
+    )
 
 
 class ActionResponse(BaseModel):
@@ -274,7 +286,7 @@ class ActionSystem:
 
         logger.info("Starting action system graph...")
         try:
-            self.graph.invoke(self.current_state)  # type: ignore
+            self.graph.invoke(self.current_state, {"recursion_limit": 100})  # type: ignore
         except KeyboardInterrupt:
             logger.info("Stopping action system due to user interrupt...")
         except GraphRecursionError as e:
@@ -392,11 +404,12 @@ class ActionSystem:
                 )
             )
 
+            # Strip images from old messages before trimming
+            messages = self._strip_old_images(messages)
             state["messages"] = messages[-MAX_MESSAGES:]
             return state
         return state
 
-    @log_runtime
     def analyze_with_parser(self, state: State) -> State:
         """Analyze using OmniParser structured data."""
         logger.info("Analyzing with parser...")
@@ -437,6 +450,8 @@ class ActionSystem:
             logger.warning("No labeled image or parsed content list found")
 
         logger.info("Analysis with parser complete")
+        # Strip images from old messages before trimming
+        messages = self._strip_old_images(messages)
         state["messages"] = messages[-MAX_MESSAGES:]
         return state
 
@@ -601,7 +616,7 @@ class ActionSystem:
 
                 if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
                     raise RuntimeError("Click action failed")
-                time.sleep(0.2)
+                time.sleep(0.5)
                 logger.info(f"Clicked at ({abs_x}, {abs_y})")
 
             elif action == "wait":
@@ -635,15 +650,38 @@ class ActionSystem:
 
                 result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
                 logger.info(f"AppleScript result: {result.stdout}")
-                time.sleep(0.2)
+                time.sleep(0.1)
 
                 # Scroll down
                 if not isinstance(parameters, ScrollParameters):
-                    raise ValueError(f"Invalid parameters for scroll action: {parameters}")
+                    # Convert empty dict to ScrollParameters with default amount
+                    parameters = ScrollParameters()
                 amount = parameters.amount
                 pyautogui.scroll(amount)  # Negative values scroll down
                 time.sleep(0.5)  # Wait for scroll to complete
                 logger.info(f"Scrolled by {amount} units")
+
+            elif action == "back":
+                # Focus window first
+                window_info = self.current_state["context"]["window_info"]
+                if not window_info:
+                    logger.error("No window info stored")
+                    raise RuntimeError("Window info not found")
+
+                # Send Cmd+Left Arrow to go back
+                script = f"""
+                    tell application "System Events"
+                        tell process "{window_info['kCGWindowOwnerName']}"
+                            set frontmost to true
+                            key code 123 using command down  # Left arrow key
+                        end tell
+                    end tell
+                """
+
+                result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                logger.info(f"Back navigation result: {result.stdout}")
+                time.sleep(0.5)  # Wait for navigation to complete
+                logger.info("Navigated back")
 
             else:
                 raise ValueError(f"Unknown action: {action}")
@@ -737,3 +775,26 @@ class ActionSystem:
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
             return False
+
+    def _strip_old_images(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """Strip image content from all but the most recent message to save memory."""
+        if not messages:
+            return messages
+
+        # Keep all messages but strip images from older ones
+        result = []
+        for i, msg in enumerate(messages):
+            if i < len(messages) - 1 and isinstance(msg, HumanMessage):
+                # For older messages, keep only the text content
+                if isinstance(msg.content, list):
+                    text_content = next((item["text"] for item in msg.content if item["type"] == "text"), None)
+                    if text_content:
+                        result.append(HumanMessage(content=text_content))
+                    else:
+                        result.append(msg)  # Keep original if no text found
+                else:
+                    result.append(msg)  # Keep original if not multi-content
+            else:
+                result.append(msg)  # Keep the most recent message intact
+
+        return result
