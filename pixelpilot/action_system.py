@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import subprocess
 import time
 from io import BytesIO
@@ -17,6 +18,7 @@ from typing import Union
 import numpy as np
 import torch
 import yaml
+from huggingface_hub import InferenceClient
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
@@ -28,7 +30,6 @@ from langgraph.graph.message import add_messages
 from PIL import Image
 from pydantic import BaseModel
 from pydantic import Field
-from text_generation import Client
 
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
@@ -122,10 +123,10 @@ class ActionSystem:
 
         # Initialize LLM based on provider
         self.llm_provider = llm_provider
-        if llm_provider == "tgi":
-            from text_generation import Client
-
-            self.llm = Client(llm_config.get("url", "http://jelly:8080"))  # type: ignore
+        self.llm_config = llm_config
+        if llm_provider == "local":
+            assert self.llm_config
+            self.llm = InferenceClient(self.llm_config["url"])
         elif llm_provider == "openai":
             from langchain_openai import ChatOpenAI
 
@@ -375,11 +376,21 @@ class ActionSystem:
         label_coordinates = state.get("label_coordinates", {})
 
         if labeled_img:
-            # Decode base64 string back to image, compress, then re-encode
+            # Save image to temp file
             img_data = base64.b64decode(labeled_img)
             img = Image.open(BytesIO(img_data))
-            compressed_base64 = self._encode_image(img)
-            timestamp = time.strftime("%H:%M:%S")
+
+            # Create temp directory if it doesn't exist
+            temp_dir = os.path.join(os.path.dirname(__file__), "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Save with timestamp to avoid conflicts
+            timestamp = time.strftime("%H%M%S")
+            img_path = os.path.join(temp_dir, f"screenshot_{timestamp}.jpg")
+            img.save(img_path, format="JPEG", quality=85)
+
+            # Create image URL
+            image_url = f"file://{img_path}"
 
             # Create a list of available box IDs
             assert label_coordinates, "label_coordinates should not be empty"
@@ -389,7 +400,7 @@ class ActionSystem:
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
+                        {"type": "image_url", "image_url": {"url": image_url}},
                         {
                             "type": "text",
                             "text": dedent(f"""
@@ -457,24 +468,21 @@ class ActionSystem:
 
     def _get_llm_response(self, messages: Sequence[BaseMessage]) -> ActionResponse:
         """Get response from LLM."""
-        if isinstance(self.llm, Client):  # TGI case
-            # Convert messages to text format for TGI
-            prompt = ""
-            for message in messages:
-                if isinstance(message, SystemMessage):
-                    prompt += f"<|system|>{message.content}</s>\n"
-                elif isinstance(message, HumanMessage):
-                    prompt += f"<|human|>{message.content}</s>\n"
-                elif isinstance(message, AIMessage):
-                    prompt += f"<|assistant|>{message.content}</s>\n"
+        if isinstance(self.llm, InferenceClient):  # Local Models
+            assert isinstance(self.llm, InferenceClient)
+            formatted_messages = [{"role": msg.type, "content": str(msg.content)} for msg in messages]
+            # Log total size of messages
+            total_chars = sum(len(str(msg["content"])) for msg in formatted_messages)
+            logger.info(f"Total message content size: {total_chars} characters")
+            for i, msg in enumerate(formatted_messages):
+                logger.info(f"Message {i} size: {len(str(msg['content']))} chars, type: {msg['role']}")
 
-            # Get response from TGI
-            response = self.llm.generate(
-                prompt,
-                max_new_tokens=1024,
-                temperature=0.7,
-                top_p=0.95,
-            ).generated_text
+            formatted_response = {"type": "json", "value": ActionResponse.model_json_schema()}
+            response = self.llm.chat_completion(
+                messages=formatted_messages,
+                # max_tokens=4000,
+                response_format=formatted_response,  # type: ignore
+            )  # type: ignore
 
             # Parse JSON from response
             try:
@@ -743,9 +751,28 @@ class ActionSystem:
             return False
 
     def _encode_image(self, image: Image.Image) -> str:
-        """Convert image to base64 string."""
+        """Convert image to base64 string with compression."""
+        # Make a copy to avoid modifying original
+        img = image.copy()
+
+        # Resize if the image is too large (e.g., > 800 pixels in any dimension)
+        max_size = 800
+        if img.width > max_size or img.height > max_size:
+            ratio = min(max_size / img.width, max_size / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        # Convert to RGB if necessary (in case of RGBA screenshots)
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            bg.paste(img, mask=img.split()[-1])  # Use alpha channel as mask
+            img = bg
+
+        # Save as JPEG with higher compression
         buffered = BytesIO()
-        image.save(buffered, format="PNG")
+        img.save(buffered, format="JPEG", quality=60, optimize=True)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
