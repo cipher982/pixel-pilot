@@ -488,8 +488,11 @@ class ActionSystem:
             try:
                 json_response = json.loads(response)
                 return ActionResponse(**json_response)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON from response: {response}", exc_info=True)
+            except TypeError:
+                json_response = json.loads(response.choices[0].message.content)
+                return ActionResponse(**json_response)
+            except Exception as e:
+                logger.error(f"Failed to parse LLM response: {str(e)}", exc_info=True)
                 raise e
         else:  # OpenAI/LangChain case
             try:
@@ -755,24 +758,24 @@ class ActionSystem:
         # Make a copy to avoid modifying original
         img = image.copy()
 
-        # Resize if the image is too large (e.g., > 800 pixels in any dimension)
-        max_size = 800
+        # Resize if the image is too large
+        max_size = 1024
         if img.width > max_size or img.height > max_size:
             ratio = min(max_size / img.width, max_size / img.height)
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-        # Convert to RGB if necessary (in case of RGBA screenshots)
-        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-            bg = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            bg.paste(img, mask=img.split()[-1])  # Use alpha channel as mask
-            img = bg
+        # # Convert to RGB if necessary (in case of RGBA screenshots)
+        # if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        #     bg = Image.new("RGB", img.size, (255, 255, 255))
+        #     if img.mode == "P":
+        #         img = img.convert("RGBA")
+        #     bg.paste(img, mask=img.split()[-1])  # Use alpha channel as mask
+        #     img = bg
 
         # Save as JPEG with higher compression
         buffered = BytesIO()
-        img.save(buffered, format="JPEG", quality=60, optimize=True)
+        img.save(buffered, format="JPEG", quality=85, optimize=True)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
@@ -814,7 +817,7 @@ class ActionSystem:
             if i < len(messages) - 1 and isinstance(msg, HumanMessage):
                 # For older messages, keep only the text content
                 if isinstance(msg.content, list):
-                    text_content = next((item["text"] for item in msg.content if item["type"] == "text"), None)
+                    text_content = next((item["text"] for item in msg.content if item["type"] == "text"), None)  # type: ignore
                     if text_content:
                         result.append(HumanMessage(content=text_content))
                     else:
