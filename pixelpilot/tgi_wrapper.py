@@ -1,5 +1,4 @@
 from typing import Any
-from typing import Dict
 from typing import List
 from typing import Optional
 
@@ -8,8 +7,6 @@ from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
-from langchain_core.messages import HumanMessage
-from langchain_core.messages import SystemMessage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.outputs import ChatResult
 from pydantic import BaseModel
@@ -26,22 +23,12 @@ class LocalTGIChatModel(BaseChatModel):
 
     def __init__(self, base_url: str, timeout: float = 60.0, **kwargs: Any):
         client_config = InferenceClientConfig(base_url=base_url, timeout=timeout)
-        super().__init__(client_config=client_config, **kwargs)
+        self.client_config = client_config
+        super().__init__(**kwargs)
 
     @property
     def _llm_type(self) -> str:
         return "local-tgi-chat-model"
-
-    def _convert_message_to_dict(self, message: BaseMessage) -> Dict[str, str]:
-        if isinstance(message, HumanMessage):
-            return {"role": "user", "content": message.content}
-        elif isinstance(message, SystemMessage):
-            return {"role": "system", "content": message.content}
-        elif isinstance(message, AIMessage):
-            return {"role": "assistant", "content": message.content}
-        else:
-            # For custom message types, fallback as user messages
-            return {"role": "user", "content": message.content}
 
     def _generate(
         self,
