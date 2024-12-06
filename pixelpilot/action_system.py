@@ -765,17 +765,9 @@ class ActionSystem:
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-        # # Convert to RGB if necessary (in case of RGBA screenshots)
-        # if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-        #     bg = Image.new("RGB", img.size, (255, 255, 255))
-        #     if img.mode == "P":
-        #         img = img.convert("RGBA")
-        #     bg.paste(img, mask=img.split()[-1])  # Use alpha channel as mask
-        #     img = bg
-
         # Save as JPEG with higher compression
         buffered = BytesIO()
-        img.save(buffered, format="JPEG", quality=85, optimize=True)
+        # img.save(buffered, format="JPEG", quality=85, optimize=True)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
