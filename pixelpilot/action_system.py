@@ -502,9 +502,8 @@ class ActionSystem:
         messages = [system_message] + state.get("messages", [])
         response = self.llm.invoke(messages)  # type: ignore
         if hasattr(response, "content"):
-            response = ActionResponse(**json.loads(response.content))
-        else:
-            response = ActionResponse(**response.model_dump_json())
+            response = ActionResponse(**json.loads(response.content))  # type: ignore
+        assert isinstance(response, ActionResponse)
         state["actions"] = response.actions
 
         # Add AI message with complete context
@@ -725,7 +724,7 @@ class ActionSystem:
 
         # Save as JPEG with higher compression
         buffered = BytesIO()
-        # img.save(buffered, format="JPEG", quality=85, optimize=True)
+        img.save(buffered, format="JPEG", quality=85, optimize=True)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
