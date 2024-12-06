@@ -124,7 +124,7 @@ class ActionSystem:
         self.llm_config = llm_config
         if llm_provider == "local":
             assert self.llm_config
-            self.llm = LocalTGIChatModel(base_url=self.llm_config["url"], timeout=self.llm_config.get("timeout", 60.0))
+            self.llm = LocalTGIChatModel(base_url=self.llm_config["url"]).with_structured_output(ActionResponse)
         elif llm_provider == "openai":
             from langchain_openai import ChatOpenAI
 
@@ -379,6 +379,9 @@ class ActionSystem:
             img = Image.open(BytesIO(img_data))
             compressed_base64 = self._encode_image(img)
 
+            # Save image to temp file
+            # img.save("temp.png")
+
             timestamp = time.strftime("%H:%M:%S")
 
             # Create a list of available box IDs
@@ -410,60 +413,62 @@ class ActionSystem:
             return state
         return state
 
-    def analyze_with_labels(self, state: State) -> State:
-        """Analyze using OmniParser structured data."""
-        logger.info("Analyzing with parser...")
-        messages = state.get("messages", [])
-        parsed_content_list = state.get("parsed_content_list", [])
-        labeled_img = state.get("labeled_img")
+    # def analyze_with_labels(self, state: State) -> State:
+    #     """Analyze using OmniParser structured data."""
+    #     logger.info("Analyzing with parser...")
+    #     messages = state.get("messages", [])
+    #     parsed_content_list = state.get("parsed_content_list", [])
+    #     labeled_img = state.get("labeled_img")
 
-        # Always set parsed_content_list to an empty list if not found
-        state["parsed_content_list"] = parsed_content_list or []
+    #     # Always set parsed_content_list to an empty list if not found
+    #     state["parsed_content_list"] = parsed_content_list or []
 
-        if labeled_img and parsed_content_list:
-            # Decode base64 string back to image, compress, then re-encode
-            img_data = base64.b64decode(labeled_img)
-            img = Image.open(BytesIO(img_data))
+    #     if labeled_img and parsed_content_list:
+    #         # Decode base64 string back to image, compress, then re-encode
+    #         img_data = base64.b64decode(labeled_img)
+    #         img = Image.open(BytesIO(img_data))
 
-            # Get compressed base64 string
-            compressed_base64 = self._encode_image(img)
+    #         # Get compressed base64 string
+    #         compressed_base64 = self._encode_image(img)
 
-            timestamp = time.strftime("%H:%M:%S")
-            messages.append(
-                HumanMessage(
-                    content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{compressed_base64}"}},
-                        {
-                            "type": "text",
-                            "text": dedent(f"""
-                                New screenshot taken at {timestamp}.
-                                Detected UI elements:
-                                {chr(10).join(parsed_content_list)}
-                                
-                                What action should we take based on these elements?
-                            """).strip(),
-                        },
-                    ]
-                )
-            )
-        else:
-            logger.warning("No labeled image or parsed content list found")
+    #         # Save image to temp file
+    #         img.save("temp.png")
 
-        logger.info("Analysis with parser complete")
-        # Strip images from old messages before trimming
-        messages = self._strip_old_images(messages)
-        state["messages"] = messages[-MAX_MESSAGES:]
-        return state
+    #         timestamp = time.strftime("%H:%M:%S")
+    #         messages.append(
+    #             HumanMessage(
+    #                 content=[
+    #                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{compressed_base64}"}},
+    #                     {
+    #                         "type": "text",
+    #                         "text": dedent(f"""
+    #                             New screenshot taken at {timestamp}.
+    #                             Detected UI elements:
+    #                             {chr(10).join(parsed_content_list)}
+
+    #                             What action should we take based on these elements?
+    #                         """).strip(),
+    #                     },
+    #                 ]
+    #             )
+    #         )
+    #     else:
+    #         logger.warning("No labeled image or parsed content list found")
+
+    #     logger.info("Analysis with parser complete")
+    #     # Strip images from old messages before trimming
+    #     messages = self._strip_old_images(messages)
+    #     state["messages"] = messages[-MAX_MESSAGES:]
+    #     return state
 
     @log_runtime
     def decide_action(self, state: State, label_boxes: bool = True) -> State:
         """Decide action based on specified analysis mode."""
         logger.info("Deciding action...")
 
-        if label_boxes:
-            state = self.analyze_with_labels(state)
-        else:
-            state = self.analyze_raw_image(state)
+        # if label_boxes:
+        #     state = self.analyze_with_labels(state)
+        state = self.analyze_raw_image(state)
 
         # Get response from LLM
         actions_description = "\n".join(
