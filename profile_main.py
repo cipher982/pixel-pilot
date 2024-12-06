@@ -31,8 +31,6 @@ def profile_main():
 
 if __name__ == "__main__":
     # Add command line arguments to sys.argv
-    sys.argv.extend(
-        ["--no-audio", "--use-parser", "--enable-chains", "--task-profile", "./profiles/quiz_debug.yml", "--use-chrome"]
-    )
+    sys.argv.extend(["--task-profile", "./profiles/quiz_debug.yml", "--use-firefox"])
 
     profile_main()

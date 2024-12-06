@@ -19,11 +19,11 @@ class InferenceClientConfig(BaseModel):
 
 
 class LocalTGIChatModel(BaseChatModel):
-    client_config: InferenceClientConfig = Field(description="Configuration for the TGI client")
+    client_config: InferenceClientConfig
 
     def __init__(self, base_url: str, timeout: float = 60.0, **kwargs: Any):
         client_config = InferenceClientConfig(base_url=base_url, timeout=timeout)
-        self.client_config = client_config
+        kwargs["client_config"] = client_config
         super().__init__(**kwargs)
 
     @property

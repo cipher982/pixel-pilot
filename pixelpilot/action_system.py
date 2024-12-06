@@ -1,6 +1,5 @@
 import base64
 import json
-import os
 import subprocess
 import time
 from io import BytesIO
@@ -11,14 +10,12 @@ from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
-from typing import Sequence
 from typing import TypedDict
 from typing import Union
 
 import numpy as np
 import torch
 import yaml
-from huggingface_hub import InferenceClient
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
@@ -33,6 +30,7 @@ from pydantic import Field
 
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
+from pixelpilot.tgi_wrapper import LocalTGIChatModel
 from pixelpilot.utils import get_som_labeled_img
 from pixelpilot.utils import log_runtime
 from pixelpilot.window_capture import WindowCapture
@@ -108,13 +106,13 @@ class ActionSystem:
         llm_config: Optional[Dict[str, Any]] = None,
         no_audio: bool = False,
         debug: bool = False,
-        use_parser: bool = False,
+        label_boxes: bool = False,
         use_chrome: bool = False,
         use_firefox: bool = False,
     ):
         """Initialize the action system."""
         self.debug = debug
-        self.use_parser = use_parser
+        self.label_boxes = label_boxes
         self.use_chrome = use_chrome
         self.use_firefox = use_firefox
 
@@ -126,7 +124,7 @@ class ActionSystem:
         self.llm_config = llm_config
         if llm_provider == "local":
             assert self.llm_config
-            self.llm = InferenceClient(self.llm_config["url"])
+            self.llm = LocalTGIChatModel(base_url=self.llm_config["url"], timeout=self.llm_config.get("timeout", 60.0))
         elif llm_provider == "openai":
             from langchain_openai import ChatOpenAI
 
@@ -136,8 +134,8 @@ class ActionSystem:
 
         # Initialize placeholders for all models
         self._yolo_model = None
-        self._florence_processor = None if self.use_parser else False
-        self._florence_model = None if self.use_parser else False
+        self._florence_processor = None if self.label_boxes else False
+        self._florence_model = None if self.label_boxes else False
         self._blip_processor = None
         self._blip_model = None
 
@@ -192,7 +190,7 @@ class ActionSystem:
     @property
     def florence_models(self):
         """Lazy load Florence models only when needed"""
-        if not self.use_parser:
+        if not self.label_boxes:
             return None
 
         if self._florence_processor is None or self._florence_model is None:
@@ -263,7 +261,7 @@ class ActionSystem:
 
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
-        workflow.add_node("decide_action", lambda state: self.decide_action(state, use_parser=self.use_parser))  # type: ignore
+        workflow.add_node("decide_action", lambda state: self.decide_action(state, label_boxes=self.label_boxes))  # type: ignore
         workflow.add_node("execute_action", self.execute_action)
 
         # Set entry point
@@ -325,7 +323,7 @@ class ActionSystem:
         # Process with OCR if parser is enabled
         ocr_text = []
         ocr_bbox = None
-        if self.use_parser:
+        if self.label_boxes:
             from pixelpilot.utils import check_ocr_box
 
             logger.info("Processing with OCR...")
@@ -357,7 +355,7 @@ class ActionSystem:
                 "text_padding": 3,
                 "thickness": 3,
             },
-            caption_model_processor=self.caption_model if self.use_parser else None,
+            caption_model_processor=self.caption_model if self.label_boxes else None,
             ocr_text=ocr_text,
             iou_threshold=iou_threshold,
         )
@@ -365,7 +363,7 @@ class ActionSystem:
 
         state["labeled_img"] = labeled_img
         state["label_coordinates"] = label_coordinates
-        state["parsed_content_list"] = parsed_content_list if self.use_parser else []
+        state["parsed_content_list"] = parsed_content_list if self.label_boxes else []
 
         return state
 
@@ -379,18 +377,9 @@ class ActionSystem:
             # Save image to temp file
             img_data = base64.b64decode(labeled_img)
             img = Image.open(BytesIO(img_data))
+            compressed_base64 = self._encode_image(img)
 
-            # Create temp directory if it doesn't exist
-            temp_dir = os.path.join(os.path.dirname(__file__), "temp")
-            os.makedirs(temp_dir, exist_ok=True)
-
-            # Save with timestamp to avoid conflicts
-            timestamp = time.strftime("%H%M%S")
-            img_path = os.path.join(temp_dir, f"screenshot_{timestamp}.jpg")
-            img.save(img_path, format="JPEG", quality=85)
-
-            # Create image URL
-            image_url = f"file://{img_path}"
+            timestamp = time.strftime("%H:%M:%S")
 
             # Create a list of available box IDs
             assert label_coordinates, "label_coordinates should not be empty"
@@ -400,7 +389,7 @@ class ActionSystem:
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
                         {
                             "type": "text",
                             "text": dedent(f"""
@@ -421,7 +410,7 @@ class ActionSystem:
             return state
         return state
 
-    def analyze_with_parser(self, state: State) -> State:
+    def analyze_with_labels(self, state: State) -> State:
         """Analyze using OmniParser structured data."""
         logger.info("Analyzing with parser...")
         messages = state.get("messages", [])
@@ -466,48 +455,13 @@ class ActionSystem:
         state["messages"] = messages[-MAX_MESSAGES:]
         return state
 
-    def _get_llm_response(self, messages: Sequence[BaseMessage]) -> ActionResponse:
-        """Get response from LLM."""
-        if isinstance(self.llm, InferenceClient):  # Local Models
-            assert isinstance(self.llm, InferenceClient)
-            formatted_messages = [{"role": msg.type, "content": str(msg.content)} for msg in messages]
-            # Log total size of messages
-            total_chars = sum(len(str(msg["content"])) for msg in formatted_messages)
-            logger.info(f"Total message content size: {total_chars} characters")
-            for i, msg in enumerate(formatted_messages):
-                logger.info(f"Message {i} size: {len(str(msg['content']))} chars, type: {msg['role']}")
-
-            formatted_response = {"type": "json", "value": ActionResponse.model_json_schema()}
-            response = self.llm.chat_completion(
-                messages=formatted_messages,
-                # max_tokens=4000,
-                response_format=formatted_response,  # type: ignore
-            )  # type: ignore
-
-            # Parse JSON from response
-            try:
-                json_response = json.loads(response)
-                return ActionResponse(**json_response)
-            except TypeError:
-                json_response = json.loads(response.choices[0].message.content)
-                return ActionResponse(**json_response)
-            except Exception as e:
-                logger.error(f"Failed to parse LLM response: {str(e)}", exc_info=True)
-                raise e
-        else:  # OpenAI/LangChain case
-            try:
-                return self.llm.invoke(messages)  # type: ignore
-            except Exception as e:
-                logger.error(f"LLM invocation failed: {str(e)}", exc_info=True)
-                raise e
-
     @log_runtime
-    def decide_action(self, state: State, use_parser: bool = True) -> State:
+    def decide_action(self, state: State, label_boxes: bool = True) -> State:
         """Decide action based on specified analysis mode."""
         logger.info("Deciding action...")
 
-        if use_parser:
-            state = self.analyze_with_parser(state)
+        if label_boxes:
+            state = self.analyze_with_labels(state)
         else:
             state = self.analyze_raw_image(state)
 
@@ -546,7 +500,11 @@ class ActionSystem:
         )
 
         messages = [system_message] + state.get("messages", [])
-        response = self._get_llm_response(messages)
+        response = self.llm.invoke(messages)  # type: ignore
+        if hasattr(response, "content"):
+            response = ActionResponse(**json.loads(response.content))
+        else:
+            response = ActionResponse(**response.model_dump_json())
         state["actions"] = response.actions
 
         # Add AI message with complete context
@@ -610,7 +568,7 @@ class ActionSystem:
                 coords = label_coords.get(element_id)
 
                 # If not found and we're not using parser, try numeric IDs
-                if coords is None and not self.use_parser:
+                if coords is None and not self.label_boxes:
                     # Try to find a numeric ID that matches
                     for i in range(len(label_coords)):
                         if coords := label_coords.get(str(i)):
