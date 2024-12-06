@@ -389,7 +389,7 @@ class ActionSystem:
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{compressed_base64}"}},
                         {
                             "type": "text",
                             "text": dedent(f"""
@@ -432,7 +432,7 @@ class ActionSystem:
             messages.append(
                 HumanMessage(
                     content=[
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{compressed_base64}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{compressed_base64}"}},
                         {
                             "type": "text",
                             "text": dedent(f"""
@@ -722,9 +722,9 @@ class ActionSystem:
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-        # Save as JPEG with higher compression
+        # Save as PNG
         buffered = BytesIO()
-        img.save(buffered, format="JPEG", quality=85, optimize=True)
+        img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     def _send_keys_to_window(self, keys: list[str]) -> bool:
