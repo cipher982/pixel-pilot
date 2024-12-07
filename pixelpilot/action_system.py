@@ -45,6 +45,16 @@ CAPTION_MODEL = "florence"
 MAX_MESSAGES = 10
 
 
+example_response = """'{"actions":
+    [
+        {
+            "description": "box ElementID 1 is the correct choice.",
+            "action": "click", "parameters": {"elementId": "1"}
+        }
+    ]
+}'"""
+
+
 class ClickParameters(BaseModel):
     elementId: str
 
@@ -387,7 +397,7 @@ class ActionSystem:
             # Create a list of available box IDs
             assert label_coordinates, "label_coordinates should not be empty"
             available_boxes = sorted(label_coordinates.keys())
-            box_info = "\n".join([f"Box {box_id}" for box_id in available_boxes])
+            box_info = ", ".join([f"{box_id}" for box_id in available_boxes])
 
             messages.append(
                 HumanMessage(
@@ -401,6 +411,10 @@ class ActionSystem:
                                 {box_info}
                                 
                                 What action should we take based on these elements?
+                                Simply respond as this example:
+
+                                {example_response}
+
                             """).strip(),
                         },
                     ]
@@ -511,25 +525,28 @@ class ActionSystem:
         assert isinstance(response, ActionResponse)
         state["actions"] = response.actions
 
-        # Add AI message with complete context
-        action_details = []
-        for action in state["actions"]:
-            params_str = ", ".join(f"{k}={v}" for k, v in action.parameters)
-            logger.info(f"Decided action: {action.action} ({params_str}) - {action.description}")
-
-            # Build detailed action message with reasoning
-            action_msg = f"{action.action.upper()}"
-            if action.parameters:
-                param_details = [f"{k}={v}" for k, v in action.parameters]
-                action_msg += f" ({', '.join(param_details)})"
-            action_msg += f" - {action.description}"
-            action_details.append(action_msg)
-
-        # Add AI message with complete context
-        message = "Actions decided:\n" + "\n→ ".join(action_details)
-        state["messages"].append(AIMessage(content=message))
+        # Add AI message with complete context - use the original response content
+        state["messages"].append(AIMessage(content=response.model_dump_json()))
 
         return state
+
+    def _validate_and_sanitize_parameters(self, action: str, parameters: dict) -> dict:
+        """Validate and sanitize action parameters, removing invalid ones."""
+        valid_params = {"click": {"elementId"}, "scroll": {"amount"}, "wait": {"duration"}, "back": set(), "end": set()}
+
+        if action not in valid_params:
+            raise ValueError(f"Invalid action: {action}")
+
+        # Create a copy to avoid modifying the original
+        sanitized = {}
+        allowed_params = valid_params[action]
+
+        # Only keep valid parameters for this action type
+        for param, value in parameters.items():
+            if param in allowed_params:
+                sanitized[param] = value
+
+        return sanitized
 
     @log_runtime
     def execute_action(self, state: State) -> State:
@@ -546,120 +563,127 @@ class ActionSystem:
         for action_obj in actions:
             # Access as dictionary since we stored it that way in decide_action
             action = action_obj.action
+
             if action == "end":
                 logger.info("END action received - terminating")
                 state["actions"] = []
                 state["messages"].append(SystemMessage(content="Task ended."))
                 return state
 
-            parameters = action_obj.parameters
-            logger.info(f"Executing action: {action} with parameters: {parameters}")
+            try:
+                # Sanitize parameters before execution
+                parameters = self._validate_and_sanitize_parameters(
+                    action,
+                    action_obj.parameters if isinstance(action_obj.parameters, dict) else action_obj.parameters.dict(),
+                )
 
-            # More detailed logging before execution
-            if action == "click":
-                if not isinstance(parameters, ClickParameters):
-                    raise ValueError(f"Invalid parameters for click action: {parameters}")
-                element_id = parameters.elementId
+                logger.info(f"Executing action: {action} with sanitized parameters: {parameters}")
 
-                if not element_id:
-                    raise ValueError(f"Invalid element_id: {element_id}")
+                if action == "click":
+                    element_id = parameters.get("elementId")
+                    if not element_id:
+                        raise ValueError("Missing required elementId for click action")
 
-                label_coords = state["label_coordinates"]
-                if label_coords is None:
-                    raise ValueError("No label coordinates found in state")
+                    label_coords = state["label_coordinates"]
+                    if label_coords is None:
+                        raise ValueError("No label coordinates found in state")
 
-                # Try exact match first
-                coords = label_coords.get(element_id)
+                    # Try exact match first
+                    coords = label_coords.get(element_id)
 
-                # If not found and we're not using parser, try numeric IDs
-                if coords is None and not self.label_boxes:
-                    # Try to find a numeric ID that matches
-                    for i in range(len(label_coords)):
-                        if coords := label_coords.get(str(i)):
-                            # Found a match, use these coordinates
-                            logger.info(f"Using numeric ID {i} for click target")
-                            break
+                    # If not found and we're not using parser, try numeric IDs
+                    if coords is None and not self.label_boxes:
+                        # Try to find a numeric ID that matches
+                        for i in range(len(label_coords)):
+                            if coords := label_coords.get(str(i)):
+                                # Found a match, use these coordinates
+                                logger.info(f"Using numeric ID {i} for click target")
+                                break
 
-                if coords is None:
-                    raise ValueError(f"Element id {element_id} not found in label coordinates")
+                    if coords is None:
+                        raise ValueError(f"Element id {element_id} not found in label coordinates")
 
-                rel_x = coords[0] + (coords[2] / 2)
-                rel_y = coords[1] + (coords[3] / 2)
-                abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
+                    rel_x = coords[0] + (coords[2] / 2)
+                    rel_y = coords[1] + (coords[3] / 2)
+                    abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
 
-                if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
-                    raise RuntimeError("Click action failed")
-                time.sleep(0.5)
-                logger.info(f"Clicked at ({abs_x}, {abs_y})")
+                    if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
+                        raise RuntimeError("Click action failed")
+                    time.sleep(0.5)
+                    logger.info(f"Clicked at ({abs_x}, {abs_y})")
 
-            elif action == "wait":
-                if isinstance(parameters, WaitParameters):
-                    duration = parameters.duration
+                elif action == "wait":
+                    if isinstance(parameters, WaitParameters):
+                        duration = parameters.duration
+                    else:
+                        raise ValueError(f"Invalid parameters for wait action: {parameters}")
+                    time.sleep(duration)
+                    logger.info(f"Waited for {duration} seconds")
+
+                elif action == "scroll":
+                    import pyautogui
+
+                    # Focus window first
+                    window_info = self.current_state["context"]["window_info"]
+                    if not window_info:
+                        logger.error("No window info stored")
+                        raise RuntimeError("Window info not found")
+
+                    # Simple keystroke command for each key
+                    key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
+
+                    script = f"""
+                        tell application "System Events"
+                            tell process "{window_info['kCGWindowOwnerName']}"
+                                set frontmost to true
+                                {key_commands}
+                            end tell
+                        end tell
+                    """
+
+                    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                    logger.info(f"AppleScript result: {result.stdout}")
+                    time.sleep(0.1)
+
+                    # Scroll down
+                    if not isinstance(parameters, ScrollParameters):
+                        # Convert empty dict to ScrollParameters with default amount
+                        parameters = ScrollParameters()
+                    amount = parameters.amount
+                    pyautogui.scroll(amount)  # Negative values scroll down
+                    time.sleep(0.5)  # Wait for scroll to complete
+                    logger.info(f"Scrolled by {amount} units")
+
+                elif action == "back":
+                    # Focus window first
+                    window_info = self.current_state["context"]["window_info"]
+                    if not window_info:
+                        logger.error("No window info stored")
+                        raise RuntimeError("Window info not found")
+
+                    # Send Cmd+Left Arrow to go back
+                    script = f"""
+                        tell application "System Events"
+                            tell process "{window_info['kCGWindowOwnerName']}"
+                                set frontmost to true
+                                key code 123 using command down  # Left arrow key
+                            end tell
+                        end tell
+                    """
+
+                    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+                    logger.info(f"Back navigation result: {result.stdout}")
+                    time.sleep(0.5)  # Wait for navigation to complete
+                    logger.info("Navigated back")
+
                 else:
-                    raise ValueError(f"Invalid parameters for wait action: {parameters}")
-                time.sleep(duration)
-                logger.info(f"Waited for {duration} seconds")
+                    raise ValueError(f"Unknown action: {action}")
 
-            elif action == "scroll":
-                import pyautogui
+                context["last_action"] = action
 
-                # Focus window first
-                window_info = self.current_state["context"]["window_info"]
-                if not window_info:
-                    logger.error("No window info stored")
-                    raise RuntimeError("Window info not found")
-
-                # Simple keystroke command for each key
-                key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
-
-                script = f"""
-                    tell application "System Events"
-                        tell process "{window_info['kCGWindowOwnerName']}"
-                            set frontmost to true
-                            {key_commands}
-                        end tell
-                    end tell
-                """
-
-                result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-                logger.info(f"AppleScript result: {result.stdout}")
-                time.sleep(0.1)
-
-                # Scroll down
-                if not isinstance(parameters, ScrollParameters):
-                    # Convert empty dict to ScrollParameters with default amount
-                    parameters = ScrollParameters()
-                amount = parameters.amount
-                pyautogui.scroll(amount)  # Negative values scroll down
-                time.sleep(0.5)  # Wait for scroll to complete
-                logger.info(f"Scrolled by {amount} units")
-
-            elif action == "back":
-                # Focus window first
-                window_info = self.current_state["context"]["window_info"]
-                if not window_info:
-                    logger.error("No window info stored")
-                    raise RuntimeError("Window info not found")
-
-                # Send Cmd+Left Arrow to go back
-                script = f"""
-                    tell application "System Events"
-                        tell process "{window_info['kCGWindowOwnerName']}"
-                            set frontmost to true
-                            key code 123 using command down  # Left arrow key
-                        end tell
-                    end tell
-                """
-
-                result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-                logger.info(f"Back navigation result: {result.stdout}")
-                time.sleep(0.5)  # Wait for navigation to complete
-                logger.info("Navigated back")
-
-            else:
-                raise ValueError(f"Unknown action: {action}")
-
-            context["last_action"] = action
+            except Exception as e:
+                logger.error(f"Error executing action: {e}")
+                context["last_error"] = str(e)
 
         # Clean up state after all actions complete
         state["actions"] = []
