@@ -16,6 +16,7 @@ logger = setup_logger(__name__)
 @click.option("--label-boxes", is_flag=True, help="Label boxes")
 @click.option("--use-chrome", is_flag=True, help="Use Chrome window for capture")
 @click.option("--use-firefox", is_flag=True, help="Use Firefox window for capture")
+@click.option("--llm-provider", type=click.Choice(["local", "openai", "bedrock"]), default="openai")
 def main(
     enable_audio: bool = False,
     debug: bool = False,
@@ -24,14 +25,13 @@ def main(
     label_boxes: bool = False,
     use_chrome: bool = False,
     use_firefox: bool = False,
+    llm_provider: str = "openai",
 ):
     action_system = ActionSystem(
         task_profile=task_profile,
         instructions=instructions,
         label_boxes=label_boxes,
-        # llm_provider="openai",
-        llm_provider="local",
-        llm_config={"url": "http://jelly:8080"},
+        llm_provider=llm_provider,
         no_audio=not enable_audio,
         debug=debug,
         use_chrome=use_chrome,

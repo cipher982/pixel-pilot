@@ -5,8 +5,6 @@ import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Annotated
-from typing import Any
-from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
@@ -16,10 +14,12 @@ from typing import Union
 import numpy as np
 import torch
 import yaml
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END
 from langgraph.graph import StateGraph
@@ -44,51 +44,50 @@ CAPTION_MODEL = "florence"
 # DECISION_MODEL = "gpt-4o-2024-08-06"
 MAX_MESSAGES = 10
 
-
-example_response = """'{"actions":
-    [
-        {
-            "description": "box ElementID 1 is the correct choice.",
-            "action": "click", "parameters": {"elementId": "1"}
-        }
-    ]
-}'"""
+# LLM Models
+OPENAI_MODEL = "gpt-4o"
+BEDROCK_MODEL = "us.amazon.nova-lite-v1:0"
+LOCAL_MODEL_URL = "http://jelly:8080"
 
 
 class ClickParameters(BaseModel):
-    elementId: str
+    """Parameters for click action."""
+
+    elementId: str = Field(description="ID of the element to click")
 
 
 class ScrollParameters(BaseModel):
-    """Optional parameters for scroll action"""
+    """Parameters for scroll action."""
 
-    amount: int = -3400  # Negative values scroll down, positive up
+    amount: int = Field(default=-3400, description="Amount to scroll in pixels")
 
 
 class WaitParameters(BaseModel):
-    """Optional parameters for wait action"""
+    """Parameters for wait action."""
 
-    duration: float = 2.0
+    duration: float = Field(default=2.0, description="Duration to wait in seconds")
 
 
 class BackParameters(BaseModel):
-    """Optional parameters for back action"""
+    """Parameters for back action."""
 
     pass
 
 
 class Action(BaseModel):
-    """Action schema"""
+    """Schema for a single UI automation action."""
 
-    description: str
-    action: Literal["click", "scroll", "wait", "end", "back"]
+    description: str = Field(description="Describe the reasoning behind the action.")
+    action: Literal["click", "scroll", "wait", "end", "back"] = Field(description="Type of action to perform")
     parameters: Union[ClickParameters, WaitParameters, ScrollParameters, BackParameters, dict] = Field(
-        default_factory=dict
+        default_factory=dict, description="Parameters specific to the action type"
     )
 
 
 class ActionResponse(BaseModel):
-    actions: List[Action]
+    """Schema for the response containing a list of actions to perform."""
+
+    actions: List[Action] = Field(description="List of actions to perform in sequence")
 
 
 class State(TypedDict):
@@ -113,7 +112,6 @@ class ActionSystem:
         task_profile: Optional[str] = None,
         instructions: Optional[str] = None,
         llm_provider: str = "",
-        llm_config: Optional[Dict[str, Any]] = None,
         no_audio: bool = False,
         debug: bool = False,
         label_boxes: bool = False,
@@ -131,14 +129,18 @@ class ActionSystem:
 
         # Initialize LLM based on provider
         self.llm_provider = llm_provider
-        self.llm_config = llm_config
         if llm_provider == "local":
-            assert self.llm_config
-            self.llm = LocalTGIChatModel(base_url=self.llm_config["url"]).with_structured_output(ActionResponse)
+            self.llm = LocalTGIChatModel(base_url=LOCAL_MODEL_URL).with_structured_output(ActionResponse)
         elif llm_provider == "openai":
-            from langchain_openai import ChatOpenAI
-
-            self.llm = ChatOpenAI(model="gpt-4o").with_structured_output(ActionResponse)
+            self.llm = ChatOpenAI(model=OPENAI_MODEL).with_structured_output(ActionResponse)
+        elif llm_provider == "bedrock":
+            self.llm = ChatBedrockConverse(
+                credentials_profile_name="preprod",
+                region_name="us-east-1",
+                model=BEDROCK_MODEL,
+                temperature=0,
+                max_tokens=None,
+            ).with_structured_output(ActionResponse)
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
@@ -411,10 +413,6 @@ class ActionSystem:
                                 {box_info}
                                 
                                 What action should we take based on these elements?
-                                Simply respond as this example:
-
-                                {example_response}
-
                             """).strip(),
                         },
                     ]
@@ -522,6 +520,9 @@ class ActionSystem:
         response = self.llm.invoke(messages)  # type: ignore
         if hasattr(response, "content"):
             response = ActionResponse(**json.loads(response.content))  # type: ignore
+        elif isinstance(response, str):
+            # Handle Bedrock response which comes as a string
+            response = ActionResponse(**json.loads(response))
         assert isinstance(response, ActionResponse)
         state["actions"] = response.actions
 
@@ -577,7 +578,7 @@ class ActionSystem:
                     action_obj.parameters if isinstance(action_obj.parameters, dict) else action_obj.parameters.dict(),
                 )
 
-                logger.info(f"Executing action: {action} with sanitized parameters: {parameters}")
+                logger.info(f"Executing action: {action}({parameters}) - {action_obj.description}")
 
                 if action == "click":
                     element_id = parameters.get("elementId")

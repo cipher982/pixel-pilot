@@ -5,6 +5,10 @@ instructions: |
   2. Find the correct answer among the options
   3. Click the correct answer
 
+  Be sure to look for the correctly labeled ElementId, and use that to select the correct answer.
+  Each clickable item should have a bounding box and a small label to use for selection.
+  The ElementId is the number in the label, like "0" or "1".
+
 # Documentation of available actions (for humans)
 actions:
   click: "Click on a specific UI element (requires elementId)"
