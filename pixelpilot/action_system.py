@@ -99,7 +99,7 @@ class BackAction(BaseModel):
 
 
 class ActionUnion(BaseModel):
-    """Union of all possible actions."""
+    """Union of all possible actions. Include "action" key."""
 
     action: Union[ClickAction, ScrollAction, WaitAction, EndAction, BackAction] = Field(description="Action to take")
 
@@ -494,11 +494,10 @@ class ActionSystem:
         # Handle Bedrock response differently
         if self.llm_provider == "openai":
             action: ActionUnion = response  # type: ignore
-        if self.llm_provider == "bedrock":
-            # Convert Bedrock response to standard Action formatresponse)
+        elif self.llm_provider == "bedrock":
             action: ActionUnion = response  # type: ignore
         else:
-            raise NotImplementedError("Unsupported LLM provider")
+            raise ValueError(f"Unknown LLM provider: {self.llm_provider}")
 
         state["actions"] = [action]
         state["messages"].append(AIMessage(content=json.dumps(response.model_dump())))  # type: ignore
