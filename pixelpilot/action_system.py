@@ -572,7 +572,6 @@ class ActionSystem:
             # SCROLL
             elif isinstance(action, ScrollAction):
                 print("Scroll action received")
-                print(f"amount: {action.amount}")
                 print(f"reason: {action.reason}")
                 scroll_action(self.current_state["context"]["window_info"])
             else:
