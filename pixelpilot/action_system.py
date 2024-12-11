@@ -51,7 +51,9 @@ MAX_MESSAGES = 10
 # LLM Models
 OPENAI_MODEL = "gpt-4o"
 # BEDROCK_MODEL = "us.amazon.nova-lite-v1:0"
-BEDROCK_MODEL = "us.amazon.nova-pro-v1:0"
+# BEDROCK_MODEL = "us.amazon.nova-pro-v1:0"
+# BEDROCK_MODEL = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+BEDROCK_MODEL = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
 LOCAL_MODEL_URL = "http://jelly:8080"
 
 
@@ -63,7 +65,7 @@ SCROLL_AMOUNT = -3400  # Default scroll amount in pixels
 class ClickAction(BaseModel):
     """Action to click an element."""
 
-    reason: str = Field(description="Why this element should be clicked")
+    reason: str = Field(description="Why this element should be clicked, and whats the answer.")
     action_type: Literal["click"] = Field(description="Click action")
     element_id: str = Field(description="ID of the element to click")
 
@@ -406,8 +408,8 @@ class ActionSystem:
             img = Image.open(BytesIO(img_data))
             compressed_base64 = self._encode_image(img)
 
-            # Save image to temp file
-            img.save("screenshot.png")
+            # # Save image to temp file
+            # img.save("screenshot.png")
 
             timestamp = time.strftime("%H:%M:%S")
 
@@ -474,6 +476,8 @@ class ActionSystem:
 
                     For wait/end/back:
                     {{"action": {{"action_type": "wait|end|back", "reason": "why this action"}}}}
+
+                    These should be output as tool calls, not standard message content!!
                 """).strip()
         )
 
@@ -493,6 +497,8 @@ class ActionSystem:
         if self.llm_provider == "bedrock":
             # Convert Bedrock response to standard Action formatresponse)
             action: ActionUnion = response  # type: ignore
+        else:
+            raise NotImplementedError("Unsupported LLM provider")
 
         state["actions"] = [action]
         state["messages"].append(AIMessage(content=json.dumps(response.model_dump())))  # type: ignore
