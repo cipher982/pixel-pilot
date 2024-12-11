@@ -1,6 +1,5 @@
 import base64
 import json
-import subprocess
 import time
 from io import BytesIO
 from textwrap import dedent
@@ -28,6 +27,10 @@ from PIL import Image
 from pydantic import BaseModel
 from pydantic import Field
 
+from pixelpilot.action_utils import back_action
+from pixelpilot.action_utils import click_at_coordinates
+from pixelpilot.action_utils import convert_relative_to_absolute
+from pixelpilot.action_utils import scroll_action
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
 from pixelpilot.tgi_wrapper import LocalTGIChatModel
@@ -35,6 +38,7 @@ from pixelpilot.utils import get_som_labeled_img
 from pixelpilot.utils import log_runtime
 from pixelpilot.window_capture import WindowCapture
 
+# Logger
 logger = setup_logger(__name__)
 
 # Semantic models
@@ -46,48 +50,56 @@ MAX_MESSAGES = 10
 
 # LLM Models
 OPENAI_MODEL = "gpt-4o"
-BEDROCK_MODEL = "us.amazon.nova-lite-v1:0"
+# BEDROCK_MODEL = "us.amazon.nova-lite-v1:0"
+BEDROCK_MODEL = "us.amazon.nova-pro-v1:0"
 LOCAL_MODEL_URL = "http://jelly:8080"
 
 
-class ClickParameters(BaseModel):
-    """Parameters for click action."""
-
-    elementId: str = Field(description="ID of the element to click")
-
-
-class ScrollParameters(BaseModel):
-    """Parameters for scroll action."""
-
-    amount: int = Field(default=-3400, description="Amount to scroll in pixels")
+# Constants
+WAIT_DURATION = 2.0  # Default wait duration in seconds
+SCROLL_AMOUNT = -3400  # Default scroll amount in pixels
 
 
-class WaitParameters(BaseModel):
-    """Parameters for wait action."""
+class ClickAction(BaseModel):
+    """Action to click an element."""
 
-    duration: float = Field(default=2.0, description="Duration to wait in seconds")
-
-
-class BackParameters(BaseModel):
-    """Parameters for back action."""
-
-    pass
+    reason: str = Field(description="Why this element should be clicked")
+    action_type: Literal["click"] = Field(description="Click action")
+    element_id: str = Field(description="ID of the element to click")
 
 
-class Action(BaseModel):
-    """Schema for a single UI automation action."""
+class ScrollAction(BaseModel):
+    """Action to scroll the page."""
 
-    description: str = Field(description="Describe the reasoning behind the action.")
-    action: Literal["click", "scroll", "wait", "end", "back"] = Field(description="Type of action to perform")
-    parameters: Union[ClickParameters, WaitParameters, ScrollParameters, BackParameters, dict] = Field(
-        default_factory=dict, description="Parameters specific to the action type"
-    )
+    reason: str = Field(description="Why we need to scroll")
+    action_type: Literal["scroll"] = Field(description="Scroll action")
 
 
-class ActionResponse(BaseModel):
-    """Schema for the response containing a list of actions to perform."""
+class WaitAction(BaseModel):
+    """Action to wait."""
 
-    actions: List[Action] = Field(description="List of actions to perform in sequence")
+    reason: str = Field(description="Why this action was chosen")
+    action_type: Literal["wait"] = Field(description="Wait action")
+
+
+class EndAction(BaseModel):
+    """Action to end."""
+
+    reason: str = Field(description="Why this action was chosen")
+    action_type: Literal["end"] = Field(description="End action")
+
+
+class BackAction(BaseModel):
+    """Action to go back."""
+
+    reason: str = Field(description="Why this action was chosen")
+    action_type: Literal["back"] = Field(description="Back action")
+
+
+class ActionUnion(BaseModel):
+    """Union of all possible actions."""
+
+    action: Union[ClickAction, ScrollAction, WaitAction, EndAction, BackAction] = Field(description="Action to take")
 
 
 class State(TypedDict):
@@ -96,8 +108,7 @@ class State(TypedDict):
     messages: Annotated[list, add_messages]
     screenshot: Optional[Image.Image]
     audio_text: Optional[str]
-    actions: List[Action]
-    parameters: dict
+    actions: List[ActionUnion]
     context: dict
     labeled_img: Optional[str]  # base64 encoded image
     label_coordinates: Optional[dict]
@@ -130,17 +141,19 @@ class ActionSystem:
         # Initialize LLM based on provider
         self.llm_provider = llm_provider
         if llm_provider == "local":
-            self.llm = LocalTGIChatModel(base_url=LOCAL_MODEL_URL).with_structured_output(ActionResponse)
+            self.llm = LocalTGIChatModel(base_url=LOCAL_MODEL_URL).with_structured_output(ActionUnion)
         elif llm_provider == "openai":
-            self.llm = ChatOpenAI(model=OPENAI_MODEL).with_structured_output(ActionResponse)
+            self.llm = ChatOpenAI(model=OPENAI_MODEL).with_structured_output(ActionUnion)
         elif llm_provider == "bedrock":
+            # Use Bedrock with structured output
             self.llm = ChatBedrockConverse(
                 credentials_profile_name="preprod",
                 region_name="us-east-1",
                 model=BEDROCK_MODEL,
                 temperature=0,
                 max_tokens=None,
-            ).with_structured_output(ActionResponse)
+            ).with_structured_output(ActionUnion)
+            logger.info(f"Initialized Bedrock LLM with model: {BEDROCK_MODEL}")
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
@@ -273,17 +286,19 @@ class ActionSystem:
 
         # Add nodes
         workflow.add_node("capture_state", self.capture_state)
-        workflow.add_node("decide_action", lambda state: self.decide_action(state, label_boxes=self.label_boxes))  # type: ignore
+        workflow.add_node("analyze_raw_image", self.analyze_raw_image)  # Add analyze_raw_image node
+        workflow.add_node("decide_action", self.decide_action)  # type: ignore
         workflow.add_node("execute_action", self.execute_action)
 
         # Set entry point
         workflow.set_entry_point("capture_state")
 
         # Add edges with END check
-        workflow.add_edge("capture_state", "decide_action")
+        workflow.add_edge("capture_state", "analyze_raw_image")  # Go to analyze first
+        workflow.add_edge("analyze_raw_image", "decide_action")  # Then to decide
         workflow.add_conditional_edges(
             "decide_action",
-            lambda state: "end" if any(a.action == "end" for a in state["actions"]) else "execute",
+            lambda state: "end" if any(a.action.action_type == "end" for a in state["actions"]) else "execute",
             {"end": END, "execute": "execute_action"},
         )
         workflow.add_edge("execute_action", "capture_state")
@@ -392,7 +407,7 @@ class ActionSystem:
             compressed_base64 = self._encode_image(img)
 
             # Save image to temp file
-            # img.save("temp.png")
+            img.save("screenshot.png")
 
             timestamp = time.strftime("%H:%M:%S")
 
@@ -425,129 +440,64 @@ class ActionSystem:
             return state
         return state
 
-    # def analyze_with_labels(self, state: State) -> State:
-    #     """Analyze using OmniParser structured data."""
-    #     logger.info("Analyzing with parser...")
-    #     messages = state.get("messages", [])
-    #     parsed_content_list = state.get("parsed_content_list", [])
-    #     labeled_img = state.get("labeled_img")
+    def decide_action(self, state: State) -> State:
+        """Decide what action to take based on the current state."""
+        if not state["messages"]:
+            raise ValueError("No messages in state")
 
-    #     # Always set parsed_content_list to an empty list if not found
-    #     state["parsed_content_list"] = parsed_content_list or []
-
-    #     if labeled_img and parsed_content_list:
-    #         # Decode base64 string back to image, compress, then re-encode
-    #         img_data = base64.b64decode(labeled_img)
-    #         img = Image.open(BytesIO(img_data))
-
-    #         # Get compressed base64 string
-    #         compressed_base64 = self._encode_image(img)
-
-    #         # Save image to temp file
-    #         img.save("temp.png")
-
-    #         timestamp = time.strftime("%H:%M:%S")
-    #         messages.append(
-    #             HumanMessage(
-    #                 content=[
-    #                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{compressed_base64}"}},
-    #                     {
-    #                         "type": "text",
-    #                         "text": dedent(f"""
-    #                             New screenshot taken at {timestamp}.
-    #                             Detected UI elements:
-    #                             {chr(10).join(parsed_content_list)}
-
-    #                             What action should we take based on these elements?
-    #                         """).strip(),
-    #                     },
-    #                 ]
-    #             )
-    #         )
-    #     else:
-    #         logger.warning("No labeled image or parsed content list found")
-
-    #     logger.info("Analysis with parser complete")
-    #     # Strip images from old messages before trimming
-    #     messages = self._strip_old_images(messages)
-    #     state["messages"] = messages[-MAX_MESSAGES:]
-    #     return state
-
-    @log_runtime
-    def decide_action(self, state: State, label_boxes: bool = True) -> State:
-        """Decide action based on specified analysis mode."""
-        logger.info("Deciding action...")
-
-        # if label_boxes:
-        #     state = self.analyze_with_labels(state)
-        state = self.analyze_raw_image(state)
-
-        # Get response from LLM
-        actions_description = "\n".join(
-            [f"- {name}: {description}" for name, description in self.config["actions"].items()]
-        )
+        if state["screenshot"] is None:
+            raise ValueError("No screenshot in state")
 
         system_message = SystemMessage(
             content=dedent(f"""
-                You are an automation assistant analyzing screenshots.
-                
-                Task Instructions:
-                {self.config["instructions"]}
-                
-                Available actions:
-                {actions_description}
+                    You are an automation assistant analyzing screenshots.
+                    
+                    Task Instructions:
+                    {self.config["instructions"]}
 
-                When clicking, you MUST use the box ID from the labeled image.
-                The boxes are labeled in order of detection, starting from 0.
-                Each box will show both its ID and content, like:
-                - "0: File"
-                - "1: What is the capital of France?"
-                - "2: Paris"
-                etc.
+                    When clicking, you MUST use the box ID from the labeled image.
+                    The boxes are labeled in order of detection, starting from 0.
+                    Each box will show both its ID and contenst, like:
+                    - "0: File"
+                    - "1: What is the capital of France?"
+                    - "2: Paris"
+                    etc.
 
-                Return a JSON object with:
-                - "actions": A list of actions, each with:
-                - "action": One of the available actions
-                - "description": Why you chose this action
-                - "parameters": Required parameters for the chosen action
-                    - For 'click': Must include 'elementId' matching a box ID from the image
-                    - For 'wait': Optional 'duration' in seconds (default: 2.0)
-                    - For 'end': No parameters needed
-            """).strip()
+                    Your response MUST be in this format:
+                    (Dont forget the first key as "action"!):
+
+                    For clicking:
+                    {{"action": {{"action_type": "click", "reason": "why clicking", "element_id": "box_id"}}}}
+
+                    For scrolling:
+                    {{"action": {{"action_type": "scroll", "reason": "why scrolling", "amount": scroll_amount}}}}
+
+                    For wait/end/back:
+                    {{"action": {{"action_type": "wait|end|back", "reason": "why this action"}}}}
+                """).strip()
         )
 
+        # Existing logic for capturing state and preparing messages
+        state = self.analyze_raw_image(state)
         messages = [system_message] + state.get("messages", [])
-        response = self.llm.invoke(messages)  # type: ignore
-        if hasattr(response, "content"):
-            response = ActionResponse(**json.loads(response.content))  # type: ignore
-        elif isinstance(response, str):
-            # Handle Bedrock response which comes as a string
-            response = ActionResponse(**json.loads(response))
-        assert isinstance(response, ActionResponse)
-        state["actions"] = response.actions
 
-        # Add AI message with complete context - use the original response content
-        state["messages"].append(AIMessage(content=response.model_dump_json()))
+        response = self.llm.invoke(messages)  # type: ignore
+        logger.debug(f"Raw LLM Response: {response}")
+        logger.debug(f"Response Type: {type(response)}")
+        print(f"Parsed LLM Response: {response}")
+        print(f"Response Type: {type(response)}")
+
+        # Handle Bedrock response differently
+        if self.llm_provider == "openai":
+            action: ActionUnion = response  # type: ignore
+        if self.llm_provider == "bedrock":
+            # Convert Bedrock response to standard Action formatresponse)
+            action: ActionUnion = response  # type: ignore
+
+        state["actions"] = [action]
+        state["messages"].append(AIMessage(content=json.dumps(response.model_dump())))  # type: ignore
 
         return state
-
-    def _validate_and_sanitize_parameters(self, action: str, parameters: dict) -> dict:
-        """Validate and sanitize action parameters, removing invalid ones."""
-        valid_params = {"click": {"elementId"}, "scroll": {"amount"}, "wait": {"duration"}, "back": set(), "end": set()}
-
-        if action not in valid_params:
-            raise ValueError(f"Invalid action: {action}")
-
-        # Create a copy to avoid modifying the original
-        sanitized = {}
-        allowed_params = valid_params[action]
-
-        # Only keep valid parameters for this action type
-        for param, value in parameters.items():
-            if param in allowed_params:
-                sanitized[param] = value
-
-        return sanitized
 
     @log_runtime
     def execute_action(self, state: State) -> State:
@@ -565,126 +515,70 @@ class ActionSystem:
             # Access as dictionary since we stored it that way in decide_action
             action = action_obj.action
 
-            if action == "end":
-                logger.info("END action received - terminating")
+            # WAIT
+            if isinstance(action, WaitAction):
+                time.sleep(3.0)
+                logger.info(f"Waited for {3.0} seconds")
+                state["actions"] = []
+                return state
+
+            # END
+            elif isinstance(action, EndAction):
+                logger.info(f"END action received - terminating. Reason: {action.reason}")
                 state["actions"] = []
                 state["messages"].append(SystemMessage(content="Task ended."))
                 return state
 
-            try:
-                # Sanitize parameters before execution
-                parameters = self._validate_and_sanitize_parameters(
-                    action,
-                    action_obj.parameters if isinstance(action_obj.parameters, dict) else action_obj.parameters.dict(),
+            # BACK
+            elif isinstance(action, BackAction):
+                logger.info(f"BACK action received. Reason: {action.reason}")
+                back_action(self.current_state["context"]["window_info"])
+                state["actions"] = []
+                return state
+
+            # CLICK
+            elif isinstance(action, ClickAction):
+                print("Click action received")
+                print(f"element to click: {action.element_id}")
+                print(f"reason: {action.reason}")
+
+                element_id = action.element_id
+                if not element_id:
+                    raise ValueError("Missing required elementId for click action")
+
+                label_coords = state["label_coordinates"]
+                if label_coords is None:
+                    raise ValueError("No label coordinates found in state")
+
+                coords = label_coords.get(element_id)
+                if coords is None:
+                    raise ValueError(f"Element id {element_id} not found in label coordinates")
+
+                abs_x, abs_y = convert_relative_to_absolute(
+                    window_info=self.current_state["context"]["window_info"],
+                    rel_x=coords[0] + (coords[2] / 2),
+                    rel_y=coords[1] + (coords[3] / 2),
                 )
+                if not click_at_coordinates(
+                    window_info=self.current_state["context"]["window_info"],
+                    x=abs_x,
+                    y=abs_y,
+                    duration=0.3,
+                ):
+                    raise RuntimeError("Click action failed")
 
-                logger.info(f"Executing action: {action}({parameters}) - {action_obj.description}")
+                time.sleep(0.5)
+                logger.info(f"Clicked at ({abs_x}, {abs_y})")
+            # SCROLL
+            elif isinstance(action, ScrollAction):
+                print("Scroll action received")
+                print(f"amount: {action.amount}")
+                print(f"reason: {action.reason}")
+                scroll_action(self.current_state["context"]["window_info"])
+            else:
+                raise ValueError(f"Unknown action: {action}")
 
-                if action == "click":
-                    element_id = parameters.get("elementId")
-                    if not element_id:
-                        raise ValueError("Missing required elementId for click action")
-
-                    label_coords = state["label_coordinates"]
-                    if label_coords is None:
-                        raise ValueError("No label coordinates found in state")
-
-                    # Try exact match first
-                    coords = label_coords.get(element_id)
-
-                    # If not found and we're not using parser, try numeric IDs
-                    if coords is None and not self.label_boxes:
-                        # Try to find a numeric ID that matches
-                        for i in range(len(label_coords)):
-                            if coords := label_coords.get(str(i)):
-                                # Found a match, use these coordinates
-                                logger.info(f"Using numeric ID {i} for click target")
-                                break
-
-                    if coords is None:
-                        raise ValueError(f"Element id {element_id} not found in label coordinates")
-
-                    rel_x = coords[0] + (coords[2] / 2)
-                    rel_y = coords[1] + (coords[3] / 2)
-                    abs_x, abs_y = self._convert_relative_to_absolute(rel_x, rel_y)
-
-                    if not self._click_at_coordinates(abs_x, abs_y, duration=0.3):
-                        raise RuntimeError("Click action failed")
-                    time.sleep(0.5)
-                    logger.info(f"Clicked at ({abs_x}, {abs_y})")
-
-                elif action == "wait":
-                    if isinstance(parameters, WaitParameters):
-                        duration = parameters.duration
-                    else:
-                        raise ValueError(f"Invalid parameters for wait action: {parameters}")
-                    time.sleep(duration)
-                    logger.info(f"Waited for {duration} seconds")
-
-                elif action == "scroll":
-                    import pyautogui
-
-                    # Focus window first
-                    window_info = self.current_state["context"]["window_info"]
-                    if not window_info:
-                        logger.error("No window info stored")
-                        raise RuntimeError("Window info not found")
-
-                    # Simple keystroke command for each key
-                    key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
-
-                    script = f"""
-                        tell application "System Events"
-                            tell process "{window_info['kCGWindowOwnerName']}"
-                                set frontmost to true
-                                {key_commands}
-                            end tell
-                        end tell
-                    """
-
-                    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-                    logger.info(f"AppleScript result: {result.stdout}")
-                    time.sleep(0.1)
-
-                    # Scroll down
-                    if not isinstance(parameters, ScrollParameters):
-                        # Convert empty dict to ScrollParameters with default amount
-                        parameters = ScrollParameters()
-                    amount = parameters.amount
-                    pyautogui.scroll(amount)  # Negative values scroll down
-                    time.sleep(0.5)  # Wait for scroll to complete
-                    logger.info(f"Scrolled by {amount} units")
-
-                elif action == "back":
-                    # Focus window first
-                    window_info = self.current_state["context"]["window_info"]
-                    if not window_info:
-                        logger.error("No window info stored")
-                        raise RuntimeError("Window info not found")
-
-                    # Send Cmd+Left Arrow to go back
-                    script = f"""
-                        tell application "System Events"
-                            tell process "{window_info['kCGWindowOwnerName']}"
-                                set frontmost to true
-                                key code 123 using command down  # Left arrow key
-                            end tell
-                        end tell
-                    """
-
-                    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-                    logger.info(f"Back navigation result: {result.stdout}")
-                    time.sleep(0.5)  # Wait for navigation to complete
-                    logger.info("Navigated back")
-
-                else:
-                    raise ValueError(f"Unknown action: {action}")
-
-                context["last_action"] = action
-
-            except Exception as e:
-                logger.error(f"Error executing action: {e}")
-                context["last_error"] = str(e)
+            context["last_action"] = action
 
         # Clean up state after all actions complete
         state["actions"] = []
@@ -694,51 +588,6 @@ class ActionSystem:
             logger.info("All actions completed successfully")
 
         return state
-
-    # Helper methods
-    def _convert_relative_to_absolute(self, rel_x: float, rel_y: float) -> tuple[int, int]:
-        """Convert relative coordinates to absolute screen coordinates."""
-        window_bounds = self.current_state["context"]["window_info"]["kCGWindowBounds"]
-        window_x = window_bounds["X"]
-        window_y = window_bounds["Y"]
-        window_width = window_bounds["Width"]
-        window_height = window_bounds["Height"]
-
-        abs_x = window_x + (rel_x * window_width)
-        abs_y = window_y + (rel_y * window_height)
-
-        return int(abs_x), int(abs_y)
-
-    def _click_at_coordinates(self, x: int, y: int, duration: float) -> bool:
-        """Move mouse smoothly to coordinates and click using pyautogui."""
-        try:
-            import pyautogui
-
-            pyautogui.FAILSAFE = True
-
-            # First, ensure window is focused using AppleScript
-            window_info = self.current_state["context"]["window_info"]
-            script = f"""
-                tell application "System Events"
-                    tell process "{window_info['kCGWindowOwnerName']}"
-                        set frontmost to true
-                    end tell
-                end tell
-            """
-            subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-
-            # Brief pause to let window focus take effect
-            time.sleep(0.2)
-
-            # Now perform the click
-            pyautogui.moveTo(x, y, duration=duration)
-            pyautogui.click()
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to click: {str(e)}")
-            return False
 
     def _encode_image(self, image: Image.Image) -> str:
         """Convert image to base64 string with compression."""
@@ -756,34 +605,6 @@ class ActionSystem:
         buffered = BytesIO()
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-    def _send_keys_to_window(self, keys: list[str]) -> bool:
-        """Send keystrokes to specific window using AppleScript."""
-        try:
-            window_info = self.current_state["context"]["window_info"]
-            if not window_info:
-                logger.error("No window info stored")
-                return False
-
-            # Simple keystroke command for each key
-            key_commands = "\n".join([f'keystroke "{key}"' for key in keys])
-
-            script = f"""
-                tell application "System Events"
-                    tell process "{window_info['kCGWindowOwnerName']}"
-                        set frontmost to true
-                        {key_commands}
-                    end tell
-                end tell
-            """
-
-            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-            logger.info(f"AppleScript result: {result.stdout}")
-            return True
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to send keystrokes: {e.stderr if e.stderr else str(e)}")
-            return False
 
     def _strip_old_images(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Strip image content from all but the most recent message to save memory."""
