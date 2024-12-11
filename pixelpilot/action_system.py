@@ -442,6 +442,7 @@ class ActionSystem:
             return state
         return state
 
+    @log_runtime
     def decide_action(self, state: State) -> State:
         """Decide what action to take based on the current state."""
         if not state["messages"]:
