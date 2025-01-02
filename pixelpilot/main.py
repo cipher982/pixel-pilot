@@ -16,7 +16,7 @@ logger = setup_logger(__name__)
 @click.option("--label-boxes", is_flag=True, help="Label boxes")
 @click.option("--use-chrome", is_flag=True, help="Use Chrome window for capture")
 @click.option("--use-firefox", is_flag=True, help="Use Firefox window for capture")
-@click.option("--llm-provider", type=click.Choice(["local", "openai", "bedrock"]), default="openai")
+@click.option("--llm-provider", type=click.Choice(["local", "openai", "bedrock", "fireworks"]), default="openai")
 def main(
     enable_audio: bool = False,
     debug: bool = False,

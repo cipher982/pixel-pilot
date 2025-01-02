@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import time
 from io import BytesIO
 from textwrap import dedent
@@ -33,6 +34,7 @@ from pixelpilot.action_utils import convert_relative_to_absolute
 from pixelpilot.action_utils import scroll_action
 from pixelpilot.audio_capture import AudioCapture
 from pixelpilot.logger import setup_logger
+from pixelpilot.openai_wrapper import OpenAICompatibleChatModel
 from pixelpilot.tgi_wrapper import LocalTGIChatModel
 from pixelpilot.utils import get_som_labeled_img
 from pixelpilot.utils import log_runtime
@@ -54,6 +56,7 @@ OPENAI_MODEL = "gpt-4o"
 # BEDROCK_MODEL = "us.amazon.nova-pro-v1:0"
 # BEDROCK_MODEL = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 BEDROCK_MODEL = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
+FIREWORKS_MODEL = "accounts/fireworks/models/phi-3-vision-128k-instruct"
 LOCAL_MODEL_URL = "http://jelly:8080"
 
 
@@ -146,6 +149,12 @@ class ActionSystem:
             self.llm = LocalTGIChatModel(base_url=LOCAL_MODEL_URL).with_structured_output(ActionUnion)
         elif llm_provider == "openai":
             self.llm = ChatOpenAI(model=OPENAI_MODEL).with_structured_output(ActionUnion)
+        elif llm_provider == "fireworks":
+            self.llm = OpenAICompatibleChatModel(
+                base_url="https://api.fireworks.ai/inference/v1",
+                api_key=os.getenv("FIREWORKS_API_KEY"),  # type: ignore
+                model=FIREWORKS_MODEL,
+            ).with_structured_output(ActionUnion)
         elif llm_provider == "bedrock":
             # Use Bedrock with structured output
             self.llm = ChatBedrockConverse(
@@ -492,16 +501,15 @@ class ActionSystem:
         print(f"Parsed LLM Response: {response}")
         print(f"Response Type: {type(response)}")
 
-        # Handle Bedrock response differently
-        if self.llm_provider == "openai":
-            action: ActionUnion = response  # type: ignore
-        elif self.llm_provider == "bedrock":
-            action: ActionUnion = response  # type: ignore
+        # Parse the response content into ActionUnion
+        if isinstance(response, AIMessage):
+            content = json.loads(response.content)  # type: ignore
+            action = ActionUnion.model_validate(content)
         else:
-            raise ValueError(f"Unknown LLM provider: {self.llm_provider}")
+            action: ActionUnion = response  # type: ignore
 
         state["actions"] = [action]
-        state["messages"].append(AIMessage(content=json.dumps(response.model_dump())))  # type: ignore
+        state["messages"].append(AIMessage(content=json.dumps(action.model_dump())))  # type: ignore
 
         return state
 
