@@ -101,10 +101,20 @@ class BackAction(BaseModel):
     action_type: Literal["back"] = Field(description="Back action")
 
 
+class TerminalAction(BaseModel):
+    """Action to execute terminal commands."""
+
+    reason: str = Field(description="Why this command needs to be executed")
+    action_type: Literal["terminal"] = Field(description="Terminal action")
+    command: str = Field(description="The command to execute")
+
+
 class ActionUnion(BaseModel):
     """Union of all possible actions. Include "action" key."""
 
-    action: Union[ClickAction, ScrollAction, WaitAction, EndAction, BackAction] = Field(description="Action to take")
+    action: Union[ClickAction, ScrollAction, WaitAction, EndAction, BackAction, TerminalAction] = Field(
+        description="Action to take"
+    )
 
 
 class State(TypedDict):
@@ -588,6 +598,21 @@ class ActionSystem:
                 print("Scroll action received")
                 print(f"reason: {action.reason}")
                 scroll_action(self.current_state["context"]["window_info"])
+            elif isinstance(action, TerminalAction):
+                print("Terminal action received")
+                print(f"command: {action.command}")
+                print(f"reason: {action.reason}")
+
+                import subprocess
+
+                try:
+                    result = subprocess.run(action.command, shell=True, check=True, capture_output=True, text=True)
+                    logger.info(f"Command executed successfully: {result.stdout}")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Command failed: {e.stderr}")
+                    raise RuntimeError(f"Terminal command failed: {e}")
+
+                time.sleep(0.5)  # Small delay after command execution
             else:
                 raise ValueError(f"Unknown action: {action}")
 
