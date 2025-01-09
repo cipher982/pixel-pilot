@@ -32,20 +32,51 @@ class WindowCapture:
         last_window = None  # Track the last window to prevent duplicate logging
 
         if use_chrome or use_firefox:
-            """Quick hack to return browser window instead of interactive selection."""
+            """Find or open a browser window."""
             window_list = Quartz.CGWindowListCopyWindowInfo(
                 Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
                 Quartz.kCGNullWindowID,
             )
 
             browser_name = "Google Chrome" if use_chrome else "Firefox"
+            # app_name = "Google Chrome" if use_chrome else "Firefox"
+
+            # First try to find an existing window
             for window in window_list:
                 if window.get("kCGWindowOwnerName") == browser_name:
-                    logger.info(f"Found {browser_name} window")
+                    logger.info(f"Found existing {browser_name} window")
                     return window
 
-            logger.error(f"No {browser_name} window found")
-            return None
+            # If no window found, open a new one
+            logger.info(f"No {browser_name} window found, opening new one...")
+            import subprocess
+
+            try:
+                if use_chrome:
+                    subprocess.run(["open", "-na", "Google Chrome", "--args", "--new-window"], check=True)
+                else:
+                    subprocess.run(["open", "-na", "Firefox", "--args", "--new-window"], check=True)
+
+                # Wait for window to appear
+                import time
+
+                for _ in range(10):  # Try for 5 seconds
+                    time.sleep(0.5)
+                    window_list = Quartz.CGWindowListCopyWindowInfo(
+                        Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+                        Quartz.kCGNullWindowID,
+                    )
+                    for window in window_list:
+                        if window.get("kCGWindowOwnerName") == browser_name:
+                            logger.info(f"Found new {browser_name} window")
+                            return window
+
+                logger.error(f"Failed to find new {browser_name} window after opening")
+                return None
+
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to open {browser_name}: {e}")
+                return None
 
         while True:
             try:
