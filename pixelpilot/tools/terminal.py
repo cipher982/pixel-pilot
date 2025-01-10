@@ -36,20 +36,7 @@ class TerminalTool(BaseTool):
         self._shell_state = {"last_status": 0, "last_output": "", "history": []}
 
     def _run(self, command: str, background: bool = False) -> Dict[str, Any]:
-        """Execute a terminal command maintaining shell state.
-
-        Args:
-            command: The command to execute
-            background: Whether to run in background
-
-        Returns:
-            Dict containing:
-            - success: bool
-            - output: str
-            - error: Optional[str]
-            - pwd: str (current working directory)
-            - status: int (exit status)
-        """
+        """Execute a terminal command maintaining shell state."""
         try:
             # Parse command properly using shlex
             args = shlex.split(command)
