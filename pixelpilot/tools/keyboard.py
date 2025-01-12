@@ -7,11 +7,12 @@ from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
+from typing import Type
 
 import pyautogui
-from langchain.pydantic_v1 import BaseModel
-from langchain.pydantic_v1 import Field
 from langchain.tools import BaseTool
+from pydantic import BaseModel
+from pydantic import Field
 
 from pixelpilot.logger import setup_logger
 
@@ -33,9 +34,9 @@ class KeyboardInput(BaseModel):
 class KeyboardTool(BaseTool):
     """Tool for keyboard control."""
 
-    name = "keyboard"
-    description = "Type text or send keyboard commands"
-    args_schema = KeyboardInput
+    name: str = "keyboard"
+    description: str = "Type text or send keyboard commands"
+    args_schema: Type[BaseModel] = KeyboardInput
 
     def __init__(self):
         super().__init__()

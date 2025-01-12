@@ -7,11 +7,12 @@ from typing import Dict
 from typing import Literal
 from typing import Optional
 from typing import Tuple
+from typing import Type
 
 import pyautogui
-from langchain.pydantic_v1 import BaseModel
-from langchain.pydantic_v1 import Field
 from langchain.tools import BaseTool
+from pydantic import BaseModel
+from pydantic import Field
 
 from pixelpilot.logger import setup_logger
 
@@ -32,9 +33,9 @@ class MouseInput(BaseModel):
 class MouseTool(BaseTool):
     """Tool for mouse control."""
 
-    name = "mouse"
-    description = "Control mouse for clicking and scrolling"
-    args_schema = MouseInput
+    name: str = "mouse"
+    description: str = "Control mouse for clicking and scrolling"
+    args_schema: Type[BaseModel] = MouseInput
 
     def __init__(self):
         super().__init__()
