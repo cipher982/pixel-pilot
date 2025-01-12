@@ -2,7 +2,7 @@ import unittest
 
 from langchain_core.messages import HumanMessage
 
-from pixelpilot.tgi_wrapper import LocalTGIChatModel
+from pixelpilot.llms.tgi_wrapper import LocalTGIChatModel
 
 
 class TestTGIModel(unittest.TestCase):
