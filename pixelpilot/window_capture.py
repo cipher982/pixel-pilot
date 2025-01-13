@@ -12,7 +12,7 @@ logger = setup_logger(__name__)
 
 
 class WindowCapture:
-    def __init__(self, debug: bool = False):
+    def __init__(self):
         pass
 
     @log_runtime
