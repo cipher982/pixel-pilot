@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 
 from pixelpilot.graph_system import DualPathGraph
 from pixelpilot.logger import setup_logger
+from pixelpilot.output_system import create_task_result
+from pixelpilot.output_system import display_result
 from pixelpilot.state_management import PathManager
 
 logger = setup_logger(__name__)
@@ -45,7 +47,6 @@ def main(
         return
 
     # Initialize window capture
-    # window_capture = WindowCapture(debug=debug)
     window_info = None  # Always use full screen capture
 
     # Determine initial path and initialize system
@@ -60,12 +61,11 @@ def main(
         graph_system.path_manager.update_state({"task_description": task_instructions})
         result = graph_system.run(task_description=task_instructions)
 
-        if result.get("status") == "completed":
-            logger.info("Task completed successfully")
-            if "result" in result.get("context", {}):
-                logger.info(f"Result: {result['context']['result']}")
-        else:
-            logger.warning("Task did not complete successfully")
+        # Create and display task result
+        state = dict(graph_system.path_manager.state)
+        state["status"] = result.get("status")  # Add result status to state
+        task_result = create_task_result(state=state, task_description=task_instructions)
+        display_result(task_result)
 
     except KeyboardInterrupt:
         logger.info("Operation interrupted by user")
