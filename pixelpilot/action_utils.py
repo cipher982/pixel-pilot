@@ -1,19 +1,22 @@
 import subprocess
 import time
 from typing import Any
+from typing import Dict
+from typing import Optional
 
 from pixelpilot.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 
-def back_action(window_info) -> Any:
+def back_action(window_info: Optional[Dict[str, Any]]) -> Any:
     """Navigate back in the web browser history."""
     logger.info("BACK action received")
-    # Focus window first
+
+    # Skip if no window info
     if not window_info:
-        logger.error("No window info stored")
-        raise RuntimeError("Window info not found")
+        logger.warning("No window info provided, skipping back action")
+        return
 
     # Send Cmd+Left Arrow to go back
     script = f"""
@@ -31,29 +34,26 @@ def back_action(window_info) -> Any:
     logger.info("Navigated back")
 
 
-def scroll_action(window_info) -> Any:
+def scroll_action(window_info: Optional[Dict[str, Any]]) -> Any:
     import pyautogui
 
-    # Focus window first
-    if not window_info:
-        logger.error("No window info stored")
-        raise RuntimeError("Window info not found")
+    # Focus window first if window info is provided
+    if window_info:
+        # Simple keystroke command for each key
+        key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
 
-    # Simple keystroke command for each key
-    key_commands = "\n".join([f'keystroke "{key}"' for key in ["down"]])
-
-    script = f"""
-        tell application "System Events"
-            tell process "{window_info['kCGWindowOwnerName']}"
-                set frontmost to true
-                {key_commands}
+        script = f"""
+            tell application "System Events"
+                tell process "{window_info['kCGWindowOwnerName']}"
+                    set frontmost to true
+                    {key_commands}
+                end tell
             end tell
-        end tell
-    """
+        """
 
-    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
-    logger.info(f"AppleScript result: {result.stdout}")
-    time.sleep(0.1)
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+        logger.info(f"AppleScript result: {result.stdout}")
+        time.sleep(0.1)
 
     amount = 300
     pyautogui.scroll(amount)  # Negative values scroll down
@@ -62,8 +62,17 @@ def scroll_action(window_info) -> Any:
 
 
 # Helper methods
-def convert_relative_to_absolute(window_info, rel_x: float, rel_y: float) -> tuple[int, int]:
+def convert_relative_to_absolute(window_info: Optional[Dict[str, Any]], rel_x: float, rel_y: float) -> tuple[int, int]:
     """Convert relative coordinates to absolute screen coordinates."""
+    if not window_info:
+        # For full screen, use screen dimensions
+        import pyautogui
+
+        screen_width, screen_height = pyautogui.size()
+        abs_x = int(rel_x * screen_width)
+        abs_y = int(rel_y * screen_height)
+        return abs_x, abs_y
+
     window_bounds = window_info["kCGWindowBounds"]
     window_x = window_bounds["X"]
     window_y = window_bounds["Y"]
@@ -76,27 +85,26 @@ def convert_relative_to_absolute(window_info, rel_x: float, rel_y: float) -> tup
     return int(abs_x), int(abs_y)
 
 
-def click_at_coordinates(window_info, x: int, y: int, duration: float) -> bool:
+def click_at_coordinates(window_info: Optional[Dict[str, Any]], x: int, y: int, duration: float) -> bool:
     """Move mouse smoothly to coordinates and click using pyautogui."""
     try:
         import pyautogui
 
         pyautogui.FAILSAFE = True
 
-        # First, ensure window is focused using AppleScript
-        script = f"""
-            tell application "System Events"
-                tell process "{window_info['kCGWindowOwnerName']}"
-                    set frontmost to true
+        # Only focus window if window_info is provided
+        if window_info:
+            script = f"""
+                tell application "System Events"
+                    tell process "{window_info['kCGWindowOwnerName']}"
+                        set frontmost to true
+                    end tell
                 end tell
-            end tell
-        """
-        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+            """
+            subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+            time.sleep(0.2)  # Brief pause to let window focus take effect
 
-        # Brief pause to let window focus take effect
-        time.sleep(0.2)
-
-        # Now perform the click
+        # Perform the click
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
 

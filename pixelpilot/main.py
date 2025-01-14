@@ -1,11 +1,16 @@
 from typing import Optional
 
 import click
+import yaml
+from dotenv import load_dotenv
 
-from pixelpilot.action_system import ActionSystem
+from pixelpilot.graph_system import DualPathGraph
 from pixelpilot.logger import setup_logger
+from pixelpilot.state_management import PathManager
 
 logger = setup_logger(__name__)
+
+load_dotenv()
 
 
 @click.command()
@@ -14,8 +19,6 @@ logger = setup_logger(__name__)
 @click.option("--task-profile", "-t", help="Path to task profile YAML file")
 @click.option("--instructions", "-i", help="Override task instructions")
 @click.option("--label-boxes", is_flag=True, help="Label boxes")
-@click.option("--use-chrome", is_flag=True, help="Use Chrome window for capture")
-@click.option("--use-firefox", is_flag=True, help="Use Firefox window for capture")
 @click.option("--llm-provider", type=click.Choice(["local", "openai", "bedrock", "fireworks"]), default="openai")
 def main(
     enable_audio: bool = False,
@@ -23,21 +26,51 @@ def main(
     task_profile: Optional[str] = None,
     instructions: Optional[str] = None,
     label_boxes: bool = False,
-    use_chrome: bool = False,
-    use_firefox: bool = False,
     llm_provider: str = "openai",
 ):
-    action_system = ActionSystem(
-        task_profile=task_profile,
-        instructions=instructions,
-        label_boxes=label_boxes,
-        llm_provider=llm_provider,
-        no_audio=not enable_audio,
-        debug=debug,
-        use_chrome=use_chrome,
-        use_firefox=use_firefox,
-    )
-    action_system.run()
+    """Main entry point for Pixel Pilot."""
+    # Load task profile if provided
+    task_instructions = instructions
+    if task_profile:
+        try:
+            with open(task_profile, "r") as f:
+                profile = yaml.safe_load(f)
+                task_instructions = profile.get("instructions", instructions)
+        except Exception as e:
+            logger.error(f"Failed to load task profile: {e}")
+            return
+
+    if not task_instructions:
+        logger.error("No task instructions provided")
+        return
+
+    # Initialize window capture
+    # window_capture = WindowCapture(debug=debug)
+    window_info = None  # Always use full screen capture
+
+    # Determine initial path and initialize system
+    path_manager = PathManager()
+    is_terminal = path_manager.should_use_terminal(task_instructions)
+    logger.info(f"Starting in {'terminal' if is_terminal else 'visual'} mode")
+
+    # Initialize and run the dual-path system
+    try:
+        graph_system = DualPathGraph(window_info=window_info, start_terminal=is_terminal)
+        # Add task instructions to state
+        graph_system.path_manager.update_state({"task_description": task_instructions})
+        result = graph_system.run(task_description=task_instructions)
+
+        if result.get("status") == "completed":
+            logger.info("Task completed successfully")
+            if "result" in result.get("context", {}):
+                logger.info(f"Result: {result['context']['result']}")
+        else:
+            logger.warning("Task did not complete successfully")
+
+    except KeyboardInterrupt:
+        logger.info("Operation interrupted by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
