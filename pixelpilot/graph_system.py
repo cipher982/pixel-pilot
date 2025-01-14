@@ -39,8 +39,9 @@ class DualPathGraph:
         self.path_manager.update_state({"window_info": window_info or {}})
         self.path_manager.switch_path("terminal" if start_terminal else "visual")
 
-        # Initialize LLM
-        self.llm = self._init_llm(llm_provider)
+        # Initialize LLMs for different purposes
+        self.decision_llm = self._init_decision_llm(llm_provider)
+        self.summary_llm = self._init_summary_llm(llm_provider)
 
         # Initialize tools
         self.terminal_tool = TerminalTool()
@@ -50,16 +51,19 @@ class DualPathGraph:
         self.terminal_graph = self._build_terminal_graph()
         self.visual_graph = self._build_visual_graph()
 
-    def _init_llm(self, provider: str) -> Union[OpenAICompatibleChatModel, LocalTGIChatModel]:
-        """Initialize LLM with structured output."""
+    def _init_decision_llm(self, provider: str) -> Union[OpenAICompatibleChatModel, LocalTGIChatModel]:
+        """Initialize LLM for structured decision making."""
         if provider == "local":
             llm = LocalTGIChatModel(base_url="http://localhost:8080")
         else:  # default to openai
-            # llm = OpenAICompatibleChatModel(
-            #     base_url="https://api.openai.com/v1", api_key=str(os.getenv("OPENAI_API_KEY")), model="gpt-4o-mini"
-            # )
             llm = ChatOpenAI(model="gpt-4o-mini")
         return llm.with_structured_output(ActionResponse)  # type: ignore
+
+    def _init_summary_llm(self, provider: str) -> ChatOpenAI:
+        """Initialize LLM for free-form text generation."""
+        if provider == "local":
+            return ChatOpenAI(model="gpt-4o-mini")  # Fallback to OpenAI for summaries
+        return ChatOpenAI(model="gpt-4o-mini")
 
     def _decide_next_action(self, state: SharedState) -> SharedState:
         """Use LLM to decide next action."""
@@ -81,7 +85,7 @@ class DualPathGraph:
             HumanMessage(content=self._create_decision_prompt(state)),
         ]
 
-        response: ActionResponse = self.llm.invoke(messages)  # type: ignore
+        response: ActionResponse = self.decision_llm.invoke(messages)  # type: ignore
         state["context"]["next_action"] = response.action.model_dump()
         state["context"]["next_path"] = response.next_path
         state["context"]["reasoning"] = response.reasoning
@@ -116,15 +120,17 @@ class DualPathGraph:
         workflow.add_node("decide_action", self._decide_next_action)
         workflow.add_node("execute_command", self.terminal_tool.execute_command)
         workflow.add_node("analyze_output", self.terminal_tool.analyze_output)
+        workflow.add_node("summarize", self.summarize_result)  # Add summarization node
 
         # Set entry point and edges
         workflow.set_entry_point("decide_action")
         workflow.add_edge("decide_action", "execute_command")
         workflow.add_edge("execute_command", "analyze_output")
+        workflow.add_edge("analyze_output", "summarize")  # Add edge to summarization
 
         # Add conditional edge for completion
         workflow.add_conditional_edges(
-            "analyze_output", self._should_continue, {"continue": "decide_action", "end": END, "switch_to_visual": END}
+            "summarize", self._should_continue, {"continue": "decide_action", "end": END, "switch_to_visual": END}
         )
 
         return workflow.compile()
@@ -221,3 +227,31 @@ class DualPathGraph:
                 else:
                     logger.warning("Task did not complete as expected")
                 return result
+
+    def summarize_result(self, state: SharedState) -> SharedState:
+        """Generate a user-friendly summary of the task result."""
+        messages = [
+            SystemMessage(
+                content="""You are an AI assistant that summarizes task results in a clear, concise way.
+                Based on the task description and output, create a user-friendly summary.
+                Focus on the key information the user needs to know.
+                Be direct and to the point."""
+            ),
+            HumanMessage(
+                content=f"""
+                Task: {state['task_description']}
+                Raw Output: {state['context']['last_action_result']['output']}
+                
+                Provide a clear, direct summary focusing on the key information.
+                """
+            ),
+        ]
+
+        response = self.summary_llm.invoke(messages)
+        state["context"]["summary"] = response.content
+
+        # Also update task status since this is our final node
+        if state.get("task_status") == "completed":
+            state["context"]["next_path"] = "end"
+
+        return state
