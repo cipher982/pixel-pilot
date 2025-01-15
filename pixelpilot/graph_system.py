@@ -115,7 +115,7 @@ class DualPathGraph:
         response: ActionResponse = self.decision_llm.invoke(messages)  # type: ignore
 
         # Log the raw response
-        logger.info(f"LLM Response: {response.model_dump_json(indent=2)}")
+        logger.debug(f"LLM Response: {response.model_dump_json(indent=2)}")
 
         # Update metadata
         self.metadata.confidence = max(self.metadata.confidence, response.confidence)
@@ -232,11 +232,14 @@ class DualPathGraph:
 
             # Check for completion first
             if task_status == "completed":
+                # Log final state for debugging
+                logger.debug(f"Final state on completion: {final_state}")
                 return {
                     "status": "completed",
                     "task_status": task_status,
                     "result": final_state.get("last_output", ""),
                     "context": final_state.get("context", {}),
+                    "summary": final_state.get("context", {}).get("summary"),  # Include summary in result
                 }
 
             # Handle path switching
@@ -285,11 +288,11 @@ class DualPathGraph:
     def summarize_result(self, state: SharedState) -> SharedState:
         """Generate a user-friendly summary of the task result."""
         # Log state for debugging
-        logger.info("Summarizing result. State contains:")
-        logger.info(f"- task_description: {state['task_description']}")
-        logger.info(f"- task_status: {state['task_status']}")
-        logger.info(f"- last_action_result: {state['context'].get('last_action_result')}")
-        logger.info(f"- last_output: {state.get('last_output')}")
+        logger.debug("Summarizing result. State contains:")
+        logger.debug(f"- task_description: {state['task_description']}")
+        logger.debug(f"- task_status: {state['task_status']}")
+        logger.debug(f"- last_action_result: {state['context'].get('last_action_result')}")
+        logger.debug(f"- last_output: {state.get('last_output')}")
 
         messages = [
             SystemMessage(

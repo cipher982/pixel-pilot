@@ -41,7 +41,10 @@ class AITaskResult(BaseModel):
 
 def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskResult:
     """Create task result with metadata from state"""
-    message = state.get("context", {}).get("summary")
+    # Try to get message from different sources in order of preference
+    message = state.get("summary")  # First try direct summary
+    if not message:
+        message = state.get("context", {}).get("summary")  # Then try context summary
     if not message:
         message = state.get("context", {}).get("last_action_result", {}).get("output", "No output available")
 

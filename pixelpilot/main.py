@@ -64,6 +64,7 @@ def main(
         # Create and display task result
         state = dict(graph_system.path_manager.state)
         state["status"] = result.get("status")  # Add result status to state
+        state["summary"] = result.get("summary")  # Add summary to state
         task_result = create_task_result(state=state, task_description=task_instructions)
         display_result(task_result)
 
