@@ -72,9 +72,13 @@ class DualPathGraph:
         self.path_manager = PathManager()
         self.metadata = MetadataTracker()
 
-        # Initialize system info
+        # Initialize system info with user-friendly OS name
+        os_type = platform.system().lower()
+        if os_type == "darwin":
+            os_type = "macos"
+
         system_info = {
-            "os_type": platform.system().lower(),
+            "os_type": os_type,
             "os_version": platform.release(),
             "shell": os.environ.get("SHELL", "unknown"),
             "arch": platform.machine(),
@@ -289,12 +293,20 @@ Decide and respond with:
 
     def run(self, task_description: str) -> Dict[str, Any]:
         """Run the dual-path system, switching between paths as needed."""
-        # Initialize state with task and metadata
+        # Get current context and update it with new task info
+        current_context = self.path_manager.state.get("context", {})
+        current_context.update(
+            {
+                "start_time": self.metadata.start_time,
+            }
+        )
+
+        # Initialize state with task and metadata while preserving existing context
         self.path_manager.update_state(
             {
                 "task_description": task_description,
                 "task_status": "in_progress",
-                "context": {"start_time": self.metadata.start_time},
+                "context": current_context,
             }
         )
         logger.info(f"Starting execution with task: {task_description}")
@@ -358,6 +370,10 @@ Decide and respond with:
         2. Check the last output to see if it was successful
         3. Plan the next action based on progress so far
         4. Track overall task completion
+        5. Use OS-specific commands:
+           - For macOS: Use macOS-compatible commands (e.g., 'stat -f%z' for file size)
+           - For Linux: Use Linux commands (e.g., 'stat -c %s' for file size)
+           - For Windows: Use Windows commands (e.g., 'dir' instead of 'ls')
         
         When the task is complete:
         1. Set is_task_complete=true
