@@ -85,8 +85,14 @@ class DualPathGraph:
             "python_version": platform.python_version(),
         }
 
-        # Initialize shared state with window info and system info
-        self.path_manager.update_state({"window_info": window_info or {}, "context": {"system_info": system_info}})
+        # Initialize shared state with window info, system info and current directory
+        self.path_manager.update_state(
+            {
+                "window_info": window_info or {},
+                "context": {"system_info": system_info},
+                "current_directory": os.getcwd(),
+            }
+        )
         initial_path = "terminal" if start_terminal else "visual"
         self.path_manager.switch_path(initial_path)
         self.metadata.add_path_transition(initial_path)
@@ -326,26 +332,23 @@ Decide and respond with:
 
     def summarize_result(self, state: SharedState) -> SharedState:
         """Generate a user-friendly summary of the task result."""
-        # Log state for debugging
-        logger.debug("Summarizing result. State contains:")
-        logger.debug(f"- task_description: {state['task_description']}")
-        logger.debug(f"- task_status: {state['task_status']}")
-        logger.debug(f"- last_action_result: {state['context'].get('last_action_result')}")
-        logger.debug(f"- last_output: {state.get('last_output')}")
+        # Get the last command from history
+        last_command = state.get("command_history", [])[-1] if state.get("command_history") else "No command"
+        last_result = state["context"].get("last_action_result", {})
 
         messages = [
             SystemMessage(
                 content="""You are an AI assistant that summarizes task results in a clear, concise way.
-                Based on the task description and output, create a user-friendly summary.
-                Focus on the key information the user needs to know.
-                Be direct and to the point."""
+                Based on the task description, command executed, and its output, create a user-friendly summary.
+                Focus on what was actually accomplished by the last command."""
             ),
             HumanMessage(
                 content=f"""
                 Task: {state['task_description']}
-                Raw Output: {state['context'].get('last_action_result', {}).get('output', 'No output available')}
-                
-                Provide a clear, direct summary focusing on the key information.
+                Last Command: {last_command}
+                Success: {last_result.get('success', False)}
+                Output: {last_result.get('output', 'No output')}
+                Error: {last_result.get('error', None)}
                 """
             ),
         ]
@@ -353,10 +356,6 @@ Decide and respond with:
         response = self.summary_llm.invoke(messages)
         logger.info(f"Summary generated: {response.content}")
         state["context"]["summary"] = response.content
-
-        # Also update task status since this is our final node
-        if state.get("task_status") == "completed":
-            state["context"]["next_path"] = "end"
 
         return state
 
