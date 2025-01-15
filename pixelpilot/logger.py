@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 
 
@@ -7,12 +8,13 @@ def setup_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
 
     if not logger.handlers:
-        # Set to DEBUG to capture all log levels
-        logger.setLevel(logging.DEBUG)
+        # Get log level from environment variable or default to INFO
+        log_level = os.getenv("LOGLEVEL", "INFO").upper()
+        logger.setLevel(getattr(logging, log_level))
 
-        # Console Handler for INFO and above
+        # Console Handler using same level as logger
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(getattr(logging, log_level))
         console_formatter = logging.Formatter(
             "%(asctime)s|%(name)s|%(levelname)s|%(funcName)s:%(lineno)d|%(message)s",
             datefmt="%H:%M:%S",
