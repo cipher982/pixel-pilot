@@ -31,6 +31,11 @@ class TerminalTool:
                 state["command_history"] = []
             state["command_history"].append(command)
 
+            # Add action to history
+            if "action_history" not in state:
+                state["action_history"] = []
+            state["action_history"].append(action)
+
             state["context"]["last_action_result"] = {
                 "success": success,
                 "output": output,
