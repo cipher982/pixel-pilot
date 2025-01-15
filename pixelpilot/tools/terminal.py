@@ -41,6 +41,7 @@ class TerminalTool:
             # Track command history
             if "command_history" not in state:
                 state["command_history"] = []
+            current_cmd_index = len(state["command_history"])
             state["command_history"].append(command)
 
             # Add action to history
@@ -48,16 +49,22 @@ class TerminalTool:
                 state["action_history"] = []
             state["action_history"].append(action)
 
-            state["context"]["last_action_result"] = {
+            # Store result both in last_action_result and in indexed history
+            result_data = {
                 "success": success,
                 "output": output,
                 "error": result.stderr if not success else None,
             }
+            state["context"]["last_action_result"] = result_data
+            state["context"][f"action_result_{current_cmd_index}"] = result_data
             state["last_output"] = output
 
         except Exception as e:
             logger.error(f"Command execution failed: {e}")
-            state["context"]["last_action_result"] = {"success": False, "output": None, "error": str(e)}
+            error_data = {"success": False, "output": None, "error": str(e)}
+            state["context"]["last_action_result"] = error_data
+            if "command_history" in state:
+                state["context"][f"action_result_{len(state['command_history'])-1}"] = error_data
             state["last_output"] = str(e)
 
         return state

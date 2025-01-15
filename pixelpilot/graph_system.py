@@ -203,17 +203,15 @@ Decide and respond with:
         workflow.add_node("decide_action", self._decide_next_action)
         workflow.add_node("execute_command", self.terminal_tool.execute_command)
         workflow.add_node("analyze_output", self.terminal_tool.analyze_output)
-        workflow.add_node("summarize", self.summarize_result)  # Add summarization node
 
         # Set entry point and edges
         workflow.set_entry_point("decide_action")
         workflow.add_edge("decide_action", "execute_command")
         workflow.add_edge("execute_command", "analyze_output")
-        workflow.add_edge("analyze_output", "summarize")  # Add edge to summarization
 
-        # Add conditional edge for completion
+        # Add conditional edge for completion (now from analyze_output)
         workflow.add_conditional_edges(
-            "summarize", self._should_continue, {"continue": "decide_action", "end": END, "switch_to_visual": END}
+            "analyze_output", self._should_continue, {"continue": "decide_action", "end": END, "switch_to_visual": END}
         )
 
         return workflow.compile()
@@ -322,6 +320,11 @@ Decide and respond with:
             logger.info(f"Path execution completed with status: {result.get('status')}")
 
             if result.get("status") != "continue":
+                # Generate final summary before returning
+                final_state = self.path_manager.get_state()
+                summary_state = self.summarize_result(final_state)
+                result["summary"] = summary_state["context"]["summary"]
+
                 # Update final metadata
                 self.path_manager.update_state({"context": self.metadata.to_dict()})
                 if result.get("task_status") == "completed":
@@ -331,30 +334,50 @@ Decide and respond with:
                 return result
 
     def summarize_result(self, state: SharedState) -> SharedState:
-        """Generate a user-friendly summary of the task result."""
-        # Get the last command from history
-        last_command = state.get("command_history", [])[-1] if state.get("command_history") else "No command"
-        last_result = state["context"].get("last_action_result", {})
+        """Generate a final summary of the entire task execution."""
+        command_history = state.get("command_history", [])
+
+        # Get results from context history
+        command_results = []
+        for i, cmd in enumerate(command_history):
+            context_key = f"action_result_{i}"
+            result = state["context"].get(context_key, {})
+
+            # Format each result more cleanly
+            status = "✓" if result.get("success", False) else "✗"
+            output = result.get("output", "").strip()
+            error = result.get("error")
+
+            # Only include output/error if they exist
+            details = []
+            if output:
+                details.append(f"Output: {output}")
+            if error:
+                details.append(f"Error: {error}")
+
+            command_results.append(f"- {cmd} [{status}] {' | '.join(details)}")
 
         messages = [
             SystemMessage(
-                content="""You are an AI assistant that summarizes task results in a clear, concise way.
-                Based on the task description, command executed, and its output, create a user-friendly summary.
-                Focus on what was actually accomplished by the last command."""
+                content="""You are an AI assistant that summarizes task execution results.
+                Create a clear, concise summary of what was accomplished across all steps of the task.
+                Always include specific values from command outputs (like file sizes, counts, etc).
+                If any steps failed, clearly indicate which ones.
+                Focus on concrete results and measurements rather than just describing what was attempted."""
             ),
             HumanMessage(
                 content=f"""
-                Task: {state['task_description']}
-                Last Command: {last_command}
-                Success: {last_result.get('success', False)}
-                Output: {last_result.get('output', 'No output')}
-                Error: {last_result.get('error', None)}
+                Task Description: {state['task_description']}
+                Task Status: {state.get('task_status', 'unknown')}
+                
+                Command Results:
+                {'\n'.join(command_results)}
                 """
             ),
         ]
 
         response = self.summary_llm.invoke(messages)
-        logger.info(f"Summary generated: {response.content}")
+        logger.info(f"Final summary generated: {response.content}")
         state["context"]["summary"] = response.content
 
         return state
