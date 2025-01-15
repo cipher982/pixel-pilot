@@ -29,6 +29,10 @@ from pixelpilot.visual_ops import VisualOperations
 logger = setup_logger(__name__)
 
 
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_LOCAL_URL = "http://localhost:8080"
+
+
 class MetadataTracker:
     """Tracks execution metadata"""
 
@@ -102,16 +106,16 @@ class DualPathGraph:
     def _init_decision_llm(self, provider: str) -> Union[OpenAICompatibleChatModel, LocalTGIChatModel]:
         """Initialize LLM for structured decision making."""
         if provider == "local":
-            llm = LocalTGIChatModel(base_url="http://localhost:8080")
+            llm = LocalTGIChatModel(base_url=DEFAULT_LOCAL_URL)
         else:  # default to openai
-            llm = ChatOpenAI(model="gpt-4o-mini")
+            llm = ChatOpenAI(model=DEFAULT_OPENAI_MODEL)
         return llm.with_structured_output(ActionResponse)  # type: ignore
 
     def _init_summary_llm(self, provider: str) -> ChatOpenAI:
         """Initialize LLM for free-form text generation."""
         if provider == "local":
-            return ChatOpenAI(model="gpt-4o-mini")  # Fallback to OpenAI for summaries
-        return ChatOpenAI(model="gpt-4o-mini")
+            return ChatOpenAI(model=DEFAULT_OPENAI_MODEL)  # Fallback to OpenAI for summaries
+        return ChatOpenAI(model=DEFAULT_OPENAI_MODEL)
 
     def _decide_next_action(self, state: SharedState) -> SharedState:
         """Use LLM to decide next action."""
@@ -179,11 +183,7 @@ Decide and respond with:
 3. is_task_complete: true/false
 4. reasoning: Why you made this decision
 5. confidence: Float between 0-1 indicating your confidence level
-   - 1.0: Absolutely certain
-   - 0.8: Very confident
-   - 0.5: Moderately confident
-   - 0.3: Somewhat uncertain
-   - 0.1: Very uncertain"""
+"""
 
     def _build_terminal_graph(self) -> CompiledStateGraph:
         """Build the terminal-focused operation path."""
@@ -370,9 +370,4 @@ Decide and respond with:
         2. Check if the error is because the action was already completed
         3. Move on to the next required action
         
-        Always set confidence between 0 and 1:
-        - 1.0: Absolutely certain
-        - 0.8: Very confident
-        - 0.5: Moderately confident
-        - 0.3: Somewhat uncertain
-        - 0.1: Very uncertain"""
+        Always set confidence between 0 and 1 as a float."""
