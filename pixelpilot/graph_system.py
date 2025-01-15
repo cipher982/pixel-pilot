@@ -1,7 +1,10 @@
+from datetime import datetime
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Literal
 from typing import Optional
+from typing import Set
 from typing import Union
 from typing import cast
 
@@ -24,6 +27,33 @@ from pixelpilot.visual_ops import VisualOperations
 logger = setup_logger(__name__)
 
 
+class MetadataTracker:
+    """Tracks execution metadata"""
+
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.path_transitions: List[str] = []
+        self.models_used: Set[str] = set()
+        self.token_usage = {"decision": 0, "summary": 0}
+        self.confidence = 0.0
+
+    def add_path_transition(self, path: str) -> None:
+        self.path_transitions.append(path)
+
+    def update_token_usage(self, model_type: str, tokens: int) -> None:
+        self.token_usage[model_type] += tokens
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "start_time": self.start_time,
+            "end_time": datetime.now(),
+            "path_transitions": self.path_transitions,
+            "models_used": list(self.models_used),
+            "token_usage": self.token_usage,
+            "confidence": self.confidence,
+        }
+
+
 class DualPathGraph:
     """Implements the dual-path architecture with terminal and visual paths."""
 
@@ -34,14 +64,18 @@ class DualPathGraph:
     ):
         """Initialize the dual-path system."""
         self.path_manager = PathManager()
+        self.metadata = MetadataTracker()
 
         # Initialize shared state with window info
         self.path_manager.update_state({"window_info": window_info or {}})
-        self.path_manager.switch_path("terminal" if start_terminal else "visual")
+        initial_path = "terminal" if start_terminal else "visual"
+        self.path_manager.switch_path(initial_path)
+        self.metadata.add_path_transition(initial_path)
 
         # Initialize LLMs for different purposes
         self.decision_llm = self._init_decision_llm(llm_provider)
         self.summary_llm = self._init_summary_llm(llm_provider)
+        self.metadata.models_used.add(self._get_model_name(llm_provider))
 
         # Initialize tools
         self.terminal_tool = TerminalTool()
@@ -50,6 +84,9 @@ class DualPathGraph:
         # Build graphs
         self.terminal_graph = self._build_terminal_graph()
         self.visual_graph = self._build_visual_graph()
+
+    def _get_model_name(self, provider: str) -> str:
+        return "gpt-4o" if provider == "openai" else "local-model"
 
     def _init_decision_llm(self, provider: str) -> Union[OpenAICompatibleChatModel, LocalTGIChatModel]:
         """Initialize LLM for structured decision making."""
@@ -68,24 +105,24 @@ class DualPathGraph:
     def _decide_next_action(self, state: SharedState) -> SharedState:
         """Use LLM to decide next action."""
         messages = [
-            SystemMessage(
-                content="""You are an AI assistant that decides what action to take next.
-            Based on the task description and current state, determine the next action.
-            You can use terminal commands or visual operations to accomplish the task.
-            
-            When the task is complete:
-            1. Set is_task_complete=true
-            2. Set next_path="end"
-            3. Explain why the task is complete
-            
-            When switching modes:
-            1. Set next_path="terminal" or "visual"
-            2. Explain why switching is needed"""
-            ),
+            SystemMessage(content=self._get_decision_system_prompt()),
             HumanMessage(content=self._create_decision_prompt(state)),
         ]
 
+        # Log the prompt for debugging
+        logger.debug(f"Sending prompt to LLM:\n{messages[1].content}")
+
         response: ActionResponse = self.decision_llm.invoke(messages)  # type: ignore
+
+        # Log the raw response
+        logger.info(f"LLM Response: {response.model_dump_json(indent=2)}")
+
+        # Update metadata
+        self.metadata.confidence = max(self.metadata.confidence, response.confidence)
+        if response.next_path != state["current_path"]:
+            self.metadata.add_path_transition(response.next_path)
+
+        # Update state
         state["context"]["next_action"] = response.action.model_dump()
         state["context"]["next_path"] = response.next_path
         state["context"]["reasoning"] = response.reasoning
@@ -106,11 +143,20 @@ class DualPathGraph:
         Last Output: {state['last_output']}
         Action History: {[a.model_dump() for a in state['action_history']]}
         
-        Decide:
-        1. Is the task complete? If yes, mark complete and end
-        2. Do we need to switch modes? If yes, specify which mode
-        3. What action should be taken next?
-        """
+        Decide and respond with:
+        1. action: The next action to take, including:
+           - type: "terminal" or "visual"
+           - command: The command string (e.g., "df -h /")
+           - args: Optional dictionary of subprocess arguments (e.g., {{"cwd": "/tmp"}}) or null
+        2. next_path: 'terminal', 'visual', or 'end'
+        3. is_task_complete: true/false
+        4. reasoning: Why you made this decision
+        5. confidence: Float between 0-1 indicating your confidence level
+           - 1.0: Absolutely certain
+           - 0.8: Very confident
+           - 0.5: Moderately confident
+           - 0.3: Somewhat uncertain
+           - 0.1: Very uncertain"""
 
     def _build_terminal_graph(self) -> CompiledStateGraph:
         """Build the terminal-focused operation path."""
@@ -213,8 +259,14 @@ class DualPathGraph:
 
     def run(self, task_description: str) -> Dict[str, Any]:
         """Run the dual-path system, switching between paths as needed."""
-        # Initialize state with task
-        self.path_manager.update_state({"task_description": task_description, "task_status": "in_progress"})
+        # Initialize state with task and metadata
+        self.path_manager.update_state(
+            {
+                "task_description": task_description,
+                "task_status": "in_progress",
+                "context": {"start_time": self.metadata.start_time},
+            }
+        )
         logger.info(f"Starting execution with task: {task_description}")
 
         while True:
@@ -222,6 +274,8 @@ class DualPathGraph:
             logger.info(f"Path execution completed with status: {result.get('status')}")
 
             if result.get("status") != "continue":
+                # Update final metadata
+                self.path_manager.update_state({"context": self.metadata.to_dict()})
                 if result.get("task_status") == "completed":
                     logger.info("Task completed successfully")
                 else:
@@ -230,6 +284,13 @@ class DualPathGraph:
 
     def summarize_result(self, state: SharedState) -> SharedState:
         """Generate a user-friendly summary of the task result."""
+        # Log state for debugging
+        logger.info("Summarizing result. State contains:")
+        logger.info(f"- task_description: {state['task_description']}")
+        logger.info(f"- task_status: {state['task_status']}")
+        logger.info(f"- last_action_result: {state['context'].get('last_action_result')}")
+        logger.info(f"- last_output: {state.get('last_output')}")
+
         messages = [
             SystemMessage(
                 content="""You are an AI assistant that summarizes task results in a clear, concise way.
@@ -240,7 +301,7 @@ class DualPathGraph:
             HumanMessage(
                 content=f"""
                 Task: {state['task_description']}
-                Raw Output: {state['context']['last_action_result']['output']}
+                Raw Output: {state['context'].get('last_action_result', {}).get('output', 'No output available')}
                 
                 Provide a clear, direct summary focusing on the key information.
                 """
@@ -248,6 +309,7 @@ class DualPathGraph:
         ]
 
         response = self.summary_llm.invoke(messages)
+        logger.info(f"Summary generated: {response.content}")
         state["context"]["summary"] = response.content
 
         # Also update task status since this is our final node
@@ -255,3 +317,27 @@ class DualPathGraph:
             state["context"]["next_path"] = "end"
 
         return state
+
+    def _get_decision_system_prompt(self) -> str:
+        """Get the system prompt for decision making."""
+        return """You are an AI assistant that decides what action to take next.
+        Based on the task description and current state, determine the next action.
+        You can use terminal commands or visual operations to accomplish the task.
+        
+        When the task is complete:
+        1. Set is_task_complete=true
+        2. Set next_path="end"
+        3. Explain why the task is complete
+        4. Set confidence based on certainty of completion
+        
+        When switching modes:
+        1. Set next_path="terminal" or "visual"
+        2. Explain why switching is needed
+        3. Set confidence based on certainty of decision
+        
+        Always set confidence between 0 and 1:
+        - 1.0: Absolutely certain
+        - 0.8: Very confident
+        - 0.5: Moderately confident
+        - 0.3: Somewhat uncertain
+        - 0.1: Very uncertain"""

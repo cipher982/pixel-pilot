@@ -1,4 +1,3 @@
-from typing import Literal
 from typing import Optional
 
 from pydantic import BaseModel
@@ -6,11 +5,10 @@ from pydantic import Field
 
 
 class Action(BaseModel):
-    """Base model for all actions"""
+    """Represents an action to be taken"""
 
-    type: Literal["terminal", "visual"]
     command: str
-    args: Optional[dict] = None  # For terminal: subprocess.run kwargs, for visual: operation parameters
+    args: Optional[dict] = None
 
 
 class ActionResponse(BaseModel):
