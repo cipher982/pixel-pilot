@@ -1,3 +1,5 @@
+import os
+import platform
 from datetime import datetime
 from typing import Any
 from typing import Dict
@@ -66,8 +68,17 @@ class DualPathGraph:
         self.path_manager = PathManager()
         self.metadata = MetadataTracker()
 
-        # Initialize shared state with window info
-        self.path_manager.update_state({"window_info": window_info or {}})
+        # Initialize system info
+        system_info = {
+            "os_type": platform.system().lower(),
+            "os_version": platform.release(),
+            "shell": os.environ.get("SHELL", "unknown"),
+            "arch": platform.machine(),
+            "python_version": platform.python_version(),
+        }
+
+        # Initialize shared state with window info and system info
+        self.path_manager.update_state({"window_info": window_info or {}, "context": {"system_info": system_info}})
         initial_path = "terminal" if start_terminal else "visual"
         self.path_manager.switch_path(initial_path)
         self.metadata.add_path_transition(initial_path)
@@ -136,33 +147,43 @@ class DualPathGraph:
         return state
 
     def _create_decision_prompt(self, state: SharedState) -> str:
-        """Create prompt for LLM decision making."""
-        # Get command history with results
-        command_history = []
-        for cmd in state.get("command_history", []):
-            command_history.append(f"Command: {cmd}")
+        """Create prompt for LLM decision making with comprehensive system context."""
+        command_history = [f"Command: {cmd}" for cmd in state.get("command_history", [])]
+        last_result = state["context"].get("last_action_result", {})
 
         return f"""
-        Task: {state['task_description']}
-        Current Path: {state['current_path']}
-        Last Output: {state['last_output']}
-        Command History:
-        {chr(10).join(command_history)}
-        
-        Decide and respond with:
-        1. action: The next action to take, including:
-           - type: "terminal" or "visual"
-           - command: The command string (e.g., "df -h /")
-           - args: Optional dictionary of subprocess arguments (e.g., {{"cwd": "/tmp"}}) or null
-        2. next_path: 'terminal', 'visual', or 'end'
-        3. is_task_complete: true/false
-        4. reasoning: Why you made this decision
-        5. confidence: Float between 0-1 indicating your confidence level
-           - 1.0: Absolutely certain
-           - 0.8: Very confident
-           - 0.5: Moderately confident
-           - 0.3: Somewhat uncertain
-           - 0.1: Very uncertain"""
+Current Task Information:
+    Description: {state['task_description']}
+    Status: {state.get('task_status', 'unknown')}
+    Current Path: {state['current_path']}
+
+System Context:
+    OS: {state["context"].get("system_info", {}).get("os_type", "unknown")}
+    Shell: {state["context"].get("system_info", {}).get("shell", "unknown")}
+    Working Directory: {state.get("current_directory", "unknown")}
+
+Last Action Result:
+    Success: {last_result.get("success", False)}
+    Output: {state.get("last_output", "No output")}
+    Error: {last_result.get("error", "None")}
+
+Command History:
+{'\n'.join(command_history)}
+
+Decide and respond with:
+1. action: The next action to take, including:
+   - type: "terminal" or "visual"
+   - command: The command string (e.g., "df -h /")
+   - args: Optional dictionary of subprocess arguments (e.g., {{"cwd": "/tmp"}}) or null
+2. next_path: 'terminal', 'visual', or 'end'
+3. is_task_complete: true/false
+4. reasoning: Why you made this decision
+5. confidence: Float between 0-1 indicating your confidence level
+   - 1.0: Absolutely certain
+   - 0.8: Very confident
+   - 0.5: Moderately confident
+   - 0.3: Somewhat uncertain
+   - 0.1: Very uncertain"""
 
     def _build_terminal_graph(self) -> CompiledStateGraph:
         """Build the terminal-focused operation path."""
