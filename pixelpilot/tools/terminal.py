@@ -26,6 +26,11 @@ class TerminalTool:
             success = result.returncode == 0
             output = result.stdout if success else result.stderr
 
+            # Track command history
+            if "command_history" not in state:
+                state["command_history"] = []
+            state["command_history"].append(command)
+
             state["context"]["last_action_result"] = {
                 "success": success,
                 "output": output,
@@ -41,31 +46,5 @@ class TerminalTool:
         return state
 
     def analyze_output(self, state: SharedState) -> SharedState:
-        """Analyze command output and determine task completion."""
-        result = state["context"].get("last_action_result", {})
-
-        if not result.get("success", False):
-            logger.error(f"Command failed: {result.get('error')}")
-            return state
-
-        # Check if task is complete based on output
-        output = result.get("output", "")
-        if self._is_task_complete(state["task_description"], output):
-            logger.info("Task marked as completed in terminal tool")
-            state["task_status"] = "completed"
-            state["context"]["next_path"] = "end"
-
+        """Pass through state for LLM to analyze."""
         return state
-
-    def _is_task_complete(self, task: str, output: str) -> bool:
-        """Check if the task is complete based on output."""
-        task = task.lower()
-
-        # Disk size task completion check
-        if "disk" in task and "size" in task:
-            has_disk_info = "filesystem" in output.lower() or "mounted" in output.lower()
-            logger.info(f"Disk size task completion check: {has_disk_info}")
-            return has_disk_info
-
-        # Default to false for unknown tasks
-        return False

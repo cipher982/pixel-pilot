@@ -137,11 +137,17 @@ class DualPathGraph:
 
     def _create_decision_prompt(self, state: SharedState) -> str:
         """Create prompt for LLM decision making."""
+        # Get command history with results
+        command_history = []
+        for cmd in state.get("command_history", []):
+            command_history.append(f"Command: {cmd}")
+
         return f"""
         Task: {state['task_description']}
         Current Path: {state['current_path']}
         Last Output: {state['last_output']}
-        Action History: {[a.model_dump() for a in state['action_history']]}
+        Command History:
+        {chr(10).join(command_history)}
         
         Decide and respond with:
         1. action: The next action to take, including:
@@ -324,8 +330,13 @@ class DualPathGraph:
     def _get_decision_system_prompt(self) -> str:
         """Get the system prompt for decision making."""
         return """You are an AI assistant that decides what action to take next.
-        Based on the task description and current state, determine the next action.
-        You can use terminal commands or visual operations to accomplish the task.
+        Based on the task description, current state, and command history, determine the next action.
+        
+        You should:
+        1. Review the command history to understand what has been done
+        2. Check the last output to see if it was successful
+        3. Plan the next action based on progress so far
+        4. Track overall task completion
         
         When the task is complete:
         1. Set is_task_complete=true
@@ -333,10 +344,10 @@ class DualPathGraph:
         3. Explain why the task is complete
         4. Set confidence based on certainty of completion
         
-        When switching modes:
-        1. Set next_path="terminal" or "visual"
-        2. Explain why switching is needed
-        3. Set confidence based on certainty of decision
+        When handling errors:
+        1. Analyze the error message
+        2. Check if the error is because the action was already completed
+        3. Move on to the next required action
         
         Always set confidence between 0 and 1:
         - 1.0: Absolutely certain
