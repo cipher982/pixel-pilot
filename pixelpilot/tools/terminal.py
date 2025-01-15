@@ -19,12 +19,24 @@ class TerminalTool:
         command = action.command
         args = action.args or {}
 
+        # Log the command being executed with any args
+        if args:
+            logger.info(f"Executing command: {command} (with args: {args})")
+        else:
+            logger.info(f"Executing command: {command}")
+
         try:
             import subprocess
 
             result = subprocess.run(command, shell=True, capture_output=True, text=True, **args)
             success = result.returncode == 0
             output = result.stdout if success else result.stderr
+
+            # Log command result
+            if success:
+                logger.info(f"Command succeeded with output: {output[:200]}{'...' if len(output) > 200 else ''}")
+            else:
+                logger.error(f"Command failed with error: {result.stderr}")
 
             # Track command history
             if "command_history" not in state:
