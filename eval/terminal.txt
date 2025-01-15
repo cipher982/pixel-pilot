@@ -1,0 +1,15 @@
+print the current working directory
+create a file called hello.txt
+list all python files in the current directory
+print the current date and time
+count the number of files in the current directory
+create a directory called 'temp', then create a file inside it called test.txt with the text 'hello world'
+find all .py files and count how many lines they contain in total
+create three numbered files (file1.txt, file2.txt, file3.txt) then list them to verify
+make a backup of README.md called README.backup.md, then compare their sizes
+create a logs directory if it doesn't exist, add a timestamp.txt file inside with current date
+create a directory called 'stats', create 3 files with random numbers, then calculate their average size
+find all python files, copy them to a new 'backup' directory, then compare file counts in both locations
+create a directory structure projects/web/css, add style.css in the css folder, then print the full path to it
+create 5 text files with increasing sizes (1-5 lines), then sort them by size and show the largest
+make a test directory, add 3 different file types (.txt, .md, .py), then create a summary.txt listing their details
