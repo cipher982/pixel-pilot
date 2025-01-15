@@ -74,9 +74,9 @@ def _create_metadata_table(metadata: TaskMetadata) -> Table:
     table.add_row("Paths", " → ".join(metadata.path_transitions))
     table.add_row("Confidence", f"{metadata.confidence*100:.1f}%")
 
-    if metadata.token_usage:
-        token_str = ", ".join(f"{k}: {v}" for k, v in metadata.token_usage.items())
-        table.add_row("Tokens", token_str)
+    # if metadata.token_usage:
+    #     token_str = ", ".join(f"{k}: {v}" for k, v in metadata.token_usage.items())
+    #     table.add_row("Tokens", token_str)
 
     return table
 
