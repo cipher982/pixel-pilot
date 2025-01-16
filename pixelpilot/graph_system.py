@@ -42,6 +42,12 @@ class MetadataTracker:
         self.models_used: Set[str] = set()
         self.token_usage = {"decision": 0, "summary": 0}
         self.confidence = 0.0
+        self.confidence_values: List[float] = []  # Track all confidence values
+
+    def add_confidence(self, confidence: float) -> None:
+        """Add a confidence value and update the average."""
+        self.confidence_values.append(confidence)
+        self.confidence = sum(self.confidence_values) / len(self.confidence_values)
 
     def add_path_transition(self, path: str) -> None:
         self.path_transitions.append(path)
@@ -143,7 +149,7 @@ class DualPathGraph:
         logger.debug(f"LLM Response: {response.model_dump_json(indent=2)}")
 
         # Update metadata
-        self.metadata.confidence = max(self.metadata.confidence, response.confidence)
+        self.metadata.add_confidence(response.confidence)
         if response.next_path != state["current_path"]:
             self.metadata.add_path_transition(response.next_path)
 
@@ -302,6 +308,11 @@ Decide and respond with:
         current_context.update(
             {
                 "start_time": self.metadata.start_time,
+                "end_time": datetime.now(),
+                "models_used": list(self.metadata.models_used),
+                "path_transitions": self.metadata.path_transitions,
+                "confidence": self.metadata.confidence,
+                "token_usage": self.metadata.token_usage,
             }
         )
 
@@ -326,7 +337,10 @@ Decide and respond with:
                 result["summary"] = summary_state["context"]["summary"]
 
                 # Update final metadata
-                self.path_manager.update_state({"context": self.metadata.to_dict()})
+                final_metadata = self.metadata.to_dict()
+                self.path_manager.update_state({"context": final_metadata})
+                result["context"] = final_metadata  # Ensure the result has the latest metadata
+
                 if result.get("task_status") == "completed":
                     logger.info("Task completed successfully")
                 else:

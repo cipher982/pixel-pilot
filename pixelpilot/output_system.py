@@ -96,7 +96,7 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
     context = state.get("context", {})
     metadata = TaskMetadata(
         start_time=context.get("start_time", datetime.now()),
-        end_time=datetime.now(),
+        end_time=context.get("end_time", datetime.now()),
         total_steps=len(state.get("command_history", [])),
         models_used=context.get("models_used", []),
         path_transitions=context.get("path_transitions", []),
@@ -107,7 +107,7 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
     # Debug logging
     logger = setup_logger(__name__)
     logger.info(f"Command history: {state.get('command_history', [])}")
-    logger.info(f"Last action result: {context.get('last_action_result')}")
+    logger.info(f"Context metadata: {context}")
 
     # Extract steps from command history
     steps = []
@@ -132,6 +132,7 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
                 success=result.get("success", True),  # Default to True if not specified
                 output=result.get("output", ""),
                 error=result.get("error"),
+                duration=result.get("duration"),  # Add duration from result
             )
         )
 
@@ -175,6 +176,8 @@ def display_result(result: AITaskResult, output_format: str = "pretty") -> None:
                 cmd_text += f"\n  └─ {step.output}"
             if step.error:
                 cmd_text += f"\n  └─ [red]Error: {step.error}[/red]"
+            if step.duration is not None:
+                cmd_text += f" [dim]({step.duration:.2f}s)[/dim]"
             steps_table.add_row(f"[{'green' if step.success else 'red'}]{status}[/]", cmd_text)
         steps_panel = Panel(steps_table, title="Steps", border_style="blue")
         console.print("\n", steps_panel)

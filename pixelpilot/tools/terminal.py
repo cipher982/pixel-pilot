@@ -27,8 +27,11 @@ class TerminalTool:
 
         try:
             import subprocess
+            from time import time
 
+            start_time = time()
             result = subprocess.run(command, shell=True, capture_output=True, text=True, **args)
+            duration = time() - start_time
             success = result.returncode == 0
             output = result.stdout if success else result.stderr
 
@@ -54,6 +57,7 @@ class TerminalTool:
                 "success": success,
                 "output": output,
                 "error": result.stderr if not success else None,
+                "duration": duration,
             }
             state["context"]["last_action_result"] = result_data
             state["context"][f"action_result_{current_cmd_index}"] = result_data
