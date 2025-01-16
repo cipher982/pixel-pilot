@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="200" alt="Pixel Pilot Logo">
+  <img src="assets/logo.webp" width="480" alt="Pixel Pilot Logo">
 </p>
 
 # pixel-pilot
