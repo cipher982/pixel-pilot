@@ -22,6 +22,13 @@ load_dotenv()
 @click.option("--instructions", "-i", help="Override task instructions")
 @click.option("--label-boxes", is_flag=True, help="Label boxes")
 @click.option("--llm-provider", type=click.Choice(["local", "openai", "bedrock", "fireworks"]), default="openai")
+@click.option(
+    "--output-format",
+    "-o",
+    type=click.Choice(["pretty", "json"]),
+    default="pretty",
+    help="Output format (pretty for human readable, json for machine parsing)",
+)
 def main(
     enable_audio: bool = False,
     debug: bool = False,
@@ -29,6 +36,7 @@ def main(
     instructions: Optional[str] = None,
     label_boxes: bool = False,
     llm_provider: str = "openai",
+    output_format: str = "pretty",
 ):
     """Main entry point for Pixel Pilot."""
     # Load task profile if provided
@@ -62,11 +70,15 @@ def main(
         result = graph_system.run(task_description=task_instructions)
 
         # Create and display task result
-        state = dict(graph_system.path_manager.state)
-        state["status"] = result.get("status")  # Add result status to state
-        state["summary"] = result.get("summary")  # Add summary to state
+        state = {
+            "command_history": graph_system.path_manager.state.get("command_history", []),
+            "action_history": graph_system.path_manager.state.get("action_history", []),
+            "context": result.get("context", {}),  # Use context from result
+            "status": result.get("status"),
+            "summary": result.get("summary"),
+        }
         task_result = create_task_result(state=state, task_description=task_instructions)
-        display_result(task_result)
+        display_result(task_result, output_format=output_format)
 
     except KeyboardInterrupt:
         logger.info("Operation interrupted by user")
