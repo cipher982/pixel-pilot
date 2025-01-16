@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" width="200" alt="Pixel Pilot Logo">
+</p>
+
 # pixel-pilot
 AI agent for completing computer tasks through a dual-path architecture.
 
