@@ -1,0 +1,11 @@
+{
+  "task": "create a file called hello.txt",
+  "expected_result": {
+    "success": true,
+    "files": {
+      "hello.txt": {
+        "exists": true
+      }
+    }
+  }
+} 

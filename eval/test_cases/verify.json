@@ -1,0 +1,6 @@
+{
+  "task": "print the current working directory",
+  "expected_result": {
+    "success": true
+  }
+} 
