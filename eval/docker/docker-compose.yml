@@ -1,0 +1,11 @@
+services:
+  eval:
+    build:
+      context: ../..  # Root of project
+      dockerfile: eval/docker/Dockerfile
+    volumes:
+      - ../../eval/test_cases:/app/eval/test_cases
+      - ../../eval/artifacts:/app/eval/artifacts
+    env_file:
+      - ../../.env
+    command: eval/runner.py 
