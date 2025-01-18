@@ -19,7 +19,7 @@ COPY pixelpilot ./pixelpilot
 COPY eval ./eval
 
 # Install dependencies
-RUN uv sync
+RUN uv sync --extra eval
 
 # Create test directories
 RUN mkdir -p /app/eval/artifacts

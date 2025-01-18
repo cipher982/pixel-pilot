@@ -25,7 +25,6 @@ dependencies = [
     "psutil>=6.1.0",
     "pyautogui>=0.9.54",
     "pygetwindow>=0.0.9",
-    "pyobjc-framework-quartz>=10.3.1",
     "python-dotenv>=1.0.1",
     "rich>=13.9.4",
     "sounddevice>=0.5.1",
@@ -37,6 +36,20 @@ dependencies = [
     "torchvision>=0.20.1",
     "transformers>=4.46.2",
     "ultralytics>=8.3.23",
+]
+
+[project.optional-dependencies]
+macos = [
+    "pyobjc-framework-quartz>=10.3.1",
+]
+eval = [
+    "click>=8.1.7",
+    "rich>=13.9.4",
+    "python-dotenv>=1.0.1",
+    "langchain-community",
+    "langchain-openai>=0.2.6",
+    "openai>=1.54.3",
+    "psutil>=6.1.0",
 ]
 
 [build-system]
