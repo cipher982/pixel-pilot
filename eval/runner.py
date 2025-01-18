@@ -19,21 +19,38 @@ class TestCase:
 
 def run_eval(test_case: TestCase) -> Dict:
     """Run a single evaluation"""
-    result = subprocess.run(
-        ["python", "-m", "pixelpilot.main", "--output-format", "json", "--instructions", test_case.task],
-        capture_output=True,
-        text=True,
-    )
-
     try:
-        output = json.loads(result.stdout)
+        result = subprocess.run(
+            ["python", "-m", "pixelpilot.main", "--output-format", "json", "--instructions", test_case.task],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=os.environ.copy(),  # Ensure environment variables are passed through
+        )
+
+        try:
+            output = json.loads(result.stdout)
+            return {
+                "success": output["task_result"]["success"],
+                "actual_result": output["task_result"],
+                "matches_expected": validate_result(output["task_result"], test_case.expected_result),
+            }
+        except json.JSONDecodeError:
+            return {
+                "success": False,
+                "error": "Failed to parse output",
+                "raw_output": result.stdout,
+                "raw_error": result.stderr,
+            }
+    except subprocess.CalledProcessError as e:
         return {
-            "success": output["task_result"]["success"],
-            "actual_result": output["task_result"],
-            "matches_expected": validate_result(output["task_result"], test_case.expected_result),
+            "success": False,
+            "error": f"Process failed with exit code {e.returncode}",
+            "raw_output": e.stdout,
+            "raw_error": e.stderr,
         }
-    except json.JSONDecodeError:
-        return {"success": False, "error": "Failed to parse output", "raw_output": result.stdout}
+    except Exception as e:
+        return {"success": False, "error": f"Unexpected error: {str(e)}", "exception_type": type(e).__name__}
 
 
 def validate_result(actual: Dict, expected: Dict) -> bool:
