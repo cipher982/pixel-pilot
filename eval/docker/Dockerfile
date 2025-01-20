@@ -5,11 +5,15 @@ RUN apt-get update && apt-get install -y git && \
     pip install uv
 
 WORKDIR /app
-COPY eval/ .
-COPY pixelpilot/ .
-COPY pyproject.toml .
-COPY uv.lock .
 
+# Copy dependency files first
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies
 RUN uv sync
 
-CMD ["python", "eval/runner.py"] 
+# Then copy source code
+COPY eval/ eval/
+COPY pixelpilot/ pixelpilot/
+
+CMD ["uv", "run", "python", "eval/runner.py"] 
