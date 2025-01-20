@@ -1,15 +1,5 @@
 #!/bin/bash
 
-# Cleanup function
-cleanup() {
-    echo "Cleaning up..."
-    kill $(jobs -p) 2>/dev/null
-    exit 0
-}
-
-# Set up signal handling
-trap cleanup SIGINT SIGTERM
-
 # Start virtual framebuffer
 Xvfb :0 -screen 0 1024x768x24 -ac &
 export DISPLAY=:0
@@ -27,9 +17,9 @@ done
 echo "Starting VNC server..."
 x11vnc -display :0 -forever -nopw &
 
-# Run xeyes as a simple test
-echo "Starting xeyes..."
-xeyes &
+# Run the test runner
+echo "Starting PixelPilot tests..."
+uv run python eval/runner.py
 
-# Wait for any signal
-wait
+# Keep container running for debugging if needed
+tail -f /dev/null 

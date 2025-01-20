@@ -1,18 +1,33 @@
 FROM python:3.12-slim
 
-# Install minimal X11
+# Install minimal X11 and system dependencies
 RUN apt-get update && apt-get install -y \
     xvfb \
     x11-apps \
-    && rm -rf /var/lib/apt/lists/*
+    python3-tk \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install uv
 
 WORKDIR /app
 
-# Add additional package without rebuilding previous layer
-RUN apt-get update && apt-get install -y x11-utils && rm -rf /var/lib/apt/lists/*
+# Add X11 utilities and VNC
+RUN apt-get update && apt-get install -y x11-utils x11vnc && rm -rf /var/lib/apt/lists/*
 
-# Test script
+# Copy dependency files first
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies
+RUN uv sync
+
+# Copy source code
+COPY pixelpilot/ pixelpilot/
+COPY eval/ eval/
+
+# Copy and setup scripts
 COPY eval/docker/test-x11.sh /test-x11.sh
-RUN chmod +x /test-x11.sh
+COPY eval/docker/run-eval.sh /run-eval.sh
+RUN chmod +x /test-x11.sh /run-eval.sh
 
+EXPOSE 5900
 CMD ["/test-x11.sh"] 
