@@ -21,7 +21,17 @@ def run_eval(test_case: TestCase) -> Dict:
     """Run a single evaluation"""
     try:
         result = subprocess.run(
-            ["python", "-m", "pixelpilot.main", "--output-format", "json", "--instructions", test_case.task],
+            [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pixelpilot.main",
+                "--output-format",
+                "json",
+                "--instructions",
+                test_case.task,
+            ],
             capture_output=True,
             text=True,
             check=True,
