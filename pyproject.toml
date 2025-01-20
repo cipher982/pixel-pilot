@@ -2,7 +2,6 @@
 name = "PixelPilot"
 version = "0.1.0"
 description = "AI agent for completing computer tasks"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.1.1",
@@ -78,3 +77,6 @@ line-ending = "lf"
 
 [tool.uv.sources]
 langchain-community = { git = "https://github.com/hwchase17/langchain.git", subdirectory = "libs/community", rev = "master" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["pixelpilot"]

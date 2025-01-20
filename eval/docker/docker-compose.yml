@@ -3,9 +3,13 @@ services:
     build:
       context: ../..  # Root of project
       dockerfile: eval/docker/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     volumes:
-      - ../../eval/test_cases:/app/eval/test_cases
+      - ../../eval/test_cases:/app/eval/test_cases:ro
       - ../../eval/artifacts:/app/eval/artifacts
+      - ../../pixelpilot:/app/pixelpilot:ro
+      - ../../eval:/app/eval:ro
     env_file:
       - ../../.env
-    command: eval/runner.py 
+    command: python eval/runner.py
