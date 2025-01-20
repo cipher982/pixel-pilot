@@ -12,6 +12,14 @@ def check_display():
         return False
     print(f"✓ DISPLAY is set to {display}")
 
+    # Create empty .Xauthority to satisfy Xlib
+    try:
+        open("/root/.Xauthority", "a").close()
+        print("✓ Created empty .Xauthority file")
+    except Exception as e:
+        print(f"❌ Failed to create .Xauthority: {str(e)}")
+        return False
+
     # Check if X server is running
     try:
         import Xlib.display
@@ -64,7 +72,11 @@ def check_dependencies():
 def main():
     print("🔍 Running environment checks...")
 
-    checks = [check_display(), check_dependencies(), check_gui_tools()]
+    checks = [
+        check_display(),  # This now creates .Xauthority first
+        check_dependencies(),
+        check_gui_tools(),
+    ]
 
     if all(checks):
         print("\n✅ All checks passed!")
