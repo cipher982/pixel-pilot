@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Cleanup function
+cleanup() {
+    echo "Cleaning up..."
+    kill $(jobs -p) 2>/dev/null
+    exit 0
+}
+
+# Set up signal handling
+trap cleanup SIGINT SIGTERM
+
 # Create log directory and files
 mkdir -p /var/log/pixelpilot
 touch /app/pixelpilot_debug.log
@@ -29,17 +39,17 @@ export LOGLEVEL=INFO
 
 echo -e "\n📋 Running PixelPilot Tests...\n"
 
-# Start tailing the debug log in background (file exists now)
+# Start tailing the debug log in background
 tail -f /app/pixelpilot_debug.log &
 
 # Run the test runner
 uv run python eval/runner.py
 
-# For debugging, save logs
+# Show log locations and exit
 echo -e "\n📝 X11 Setup Logs (if needed):"
 echo "  - /var/log/pixelpilot/xvfb.log"
 echo "  - /var/log/pixelpilot/x11vnc.log"
 echo "  - /app/pixelpilot_debug.log"
 
-# Keep container running for debugging if needed
-tail -f /dev/null 
+# Clean up and exit
+cleanup 
