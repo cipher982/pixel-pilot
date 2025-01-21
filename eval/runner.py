@@ -20,7 +20,8 @@ class TestCase:
 def run_eval(test_case: TestCase) -> Dict:
     """Run a single evaluation"""
     try:
-        result = subprocess.run(
+        # Run the command and ignore stdout/stderr
+        subprocess.run(
             [
                 "uv",
                 "run",
@@ -35,22 +36,22 @@ def run_eval(test_case: TestCase) -> Dict:
             capture_output=True,
             text=True,
             check=True,
-            env=os.environ.copy(),  # Ensure environment variables are passed through
+            env=os.environ.copy(),
         )
 
+        # Read result from file
         try:
-            output = json.loads(result.stdout)
-            return {
-                "success": output["task_result"]["success"],
-                "actual_result": output["task_result"],
-                "matches_expected": validate_result(output["task_result"], test_case.expected_result),
-            }
-        except json.JSONDecodeError:
+            with open("eval_result.json") as f:
+                output = json.load(f)
+                return {
+                    "success": output["task_result"]["success"],
+                    "actual_result": output["task_result"],
+                    "matches_expected": validate_result(output["task_result"], test_case.expected_result),
+                }
+        except (FileNotFoundError, json.JSONDecodeError) as e:
             return {
                 "success": False,
-                "error": "Failed to parse output",
-                "raw_output": result.stdout,
-                "raw_error": result.stderr,
+                "error": f"Failed to read results: {str(e)}",
             }
     except subprocess.CalledProcessError as e:
         return {

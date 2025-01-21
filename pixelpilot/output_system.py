@@ -161,39 +161,41 @@ def _create_metadata_table(metadata: TaskMetadata) -> Table:
 
 
 def display_result(result: AITaskResult, output_format: str = "pretty") -> None:
-    """Display the task result with rich formatting or as JSON"""
+    """Display task result in specified format."""
     if output_format == "json":
-        print(result.to_json())
-        return
+        # Write to eval result file
+        with open("eval_result.json", "w") as f:
+            f.write(result.to_json())
 
-    if result.type == OutputType.SUCCESS:
-        # Steps panel
-        steps_table = Table(show_header=False, box=None)
-        for step in result.steps:
-            status = "✓" if step.success else "✗"
-            cmd_text = f"[bold]{step.command}[/bold]"
-            if step.output:
-                cmd_text += f"\n  └─ {step.output}"
-            if step.error:
-                cmd_text += f"\n  └─ [red]Error: {step.error}[/red]"
-            if step.duration is not None:
-                cmd_text += f" [dim]({step.duration:.2f}s)[/dim]"
-            steps_table.add_row(f"[{'green' if step.success else 'red'}]{status}[/]", cmd_text)
-        steps_panel = Panel(steps_table, title="Steps", border_style="blue")
-        console.print("\n", steps_panel)
+    if output_format == "pretty":
+        if result.type == OutputType.SUCCESS:
+            # Steps panel
+            steps_table = Table(show_header=False, box=None)
+            for step in result.steps:
+                status = "✓" if step.success else "✗"
+                cmd_text = f"[bold]{step.command}[/bold]"
+                if step.output:
+                    cmd_text += f"\n  └─ {step.output}"
+                if step.error:
+                    cmd_text += f"\n  └─ [red]Error: {step.error}[/red]"
+                if step.duration is not None:
+                    cmd_text += f" [dim]({step.duration:.2f}s)[/dim]"
+                steps_table.add_row(f"[{'green' if step.success else 'red'}]{status}[/]", cmd_text)
+            steps_panel = Panel(steps_table, title="Steps", border_style="blue")
+            console.print("\n", steps_panel)
 
-        # Main message panel
-        text = Text(result.message, style="bold")
-        main_panel = Panel(text, title="Task Result", border_style="blue", padding=(1, 2))
+            # Main message panel
+            text = Text(result.message, style="bold")
+            main_panel = Panel(text, title="Task Result", border_style="blue", padding=(1, 2))
 
-        # Metadata panel
-        metadata_table = _create_metadata_table(result.metadata)
-        metadata_panel = Panel(metadata_table, title="Execution Details", border_style="cyan")
+            # Metadata panel
+            metadata_table = _create_metadata_table(result.metadata)
+            metadata_panel = Panel(metadata_table, title="Execution Details", border_style="cyan")
 
-        # Display panels
-        console.print(main_panel)
-        console.print(metadata_panel)
-    else:
-        text = Text(f"Error: {result.message}", style="bold red")
-        panel = Panel(text, title="Error", border_style="red", padding=(1, 2))
-        console.print("\n", panel)
+            # Display panels
+            console.print(main_panel)
+            console.print(metadata_panel)
+        else:
+            text = Text(f"Error: {result.message}", style="bold red")
+            panel = Panel(text, title="Error", border_style="red", padding=(1, 2))
+            console.print("\n", panel)
