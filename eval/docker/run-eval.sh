@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Create log directory
+# Create log directory and files
 mkdir -p /var/log/pixelpilot
+touch /app/pixelpilot_debug.log
 
 # Setup initial X11 auth file
 touch ~/.Xauthority
@@ -27,6 +28,9 @@ x11vnc -display :0 -forever -nopw -quiet > /var/log/pixelpilot/x11vnc.log 2>&1 &
 export LOGLEVEL=INFO
 
 echo -e "\n📋 Running PixelPilot Tests...\n"
+
+# Start tailing the debug log in background (file exists now)
+tail -f /app/pixelpilot_debug.log &
 
 # Run the test runner
 uv run python eval/runner.py
