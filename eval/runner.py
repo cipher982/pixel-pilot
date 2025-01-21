@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Dict
 
@@ -20,12 +21,13 @@ class TestCase:
 def run_eval(test_case: TestCase) -> Dict:
     """Run a single evaluation"""
     try:
-        # Run the command and ignore stdout/stderr
-        subprocess.run(
+        # Run the command and allow output to flow through
+        _ = subprocess.run(
             [
                 "uv",
                 "run",
                 "python",
+                "-u",  # Unbuffered output
                 "-m",
                 "pixelpilot.main",
                 "--output-format",
@@ -33,7 +35,6 @@ def run_eval(test_case: TestCase) -> Dict:
                 "--instructions",
                 test_case.task,
             ],
-            capture_output=True,
             text=True,
             check=True,
             env=os.environ.copy(),
@@ -57,8 +58,6 @@ def run_eval(test_case: TestCase) -> Dict:
         return {
             "success": False,
             "error": f"Process failed with exit code {e.returncode}",
-            "raw_output": e.stdout,
-            "raw_error": e.stderr,
         }
     except Exception as e:
         return {"success": False, "error": f"Unexpected error: {str(e)}", "exception_type": type(e).__name__}
@@ -82,6 +81,10 @@ def validate_result(actual: Dict, expected: Dict) -> bool:
 
 def main():
     """Run all test cases in test_cases directory"""
+    print("Direct stdout test", flush=True)  # Direct to stdout
+    sys.stdout.write("Direct stdout write test\n")  # Another direct test
+    sys.stdout.flush()
+
     test_dir = "eval/test_cases"
     results = []
 

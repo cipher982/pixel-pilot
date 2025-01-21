@@ -10,9 +10,8 @@ cleanup() {
 # Set up signal handling
 trap cleanup SIGINT SIGTERM
 
-# Create log directory and files
+# Create X11 log directory
 mkdir -p /var/log/pixelpilot
-touch /app/pixelpilot_debug.log
 
 # Setup initial X11 auth file
 touch ~/.Xauthority
@@ -39,17 +38,8 @@ export LOGLEVEL=INFO
 
 echo -e "\n📋 Running PixelPilot Tests...\n"
 
-# Start tailing the debug log in background
-tail -f /app/pixelpilot_debug.log &
-
 # Run the test runner
-uv run python eval/runner.py
-
-# Show log locations and exit
-echo -e "\n📝 X11 Setup Logs (if needed):"
-echo "  - /var/log/pixelpilot/xvfb.log"
-echo "  - /var/log/pixelpilot/x11vnc.log"
-echo "  - /app/pixelpilot_debug.log"
+uv run python -u eval/runner.py
 
 # Clean up and exit
 cleanup 
