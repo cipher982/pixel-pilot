@@ -85,6 +85,15 @@ class AITaskResult(BaseModel):
 
 def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskResult:
     """Create task result with metadata from state"""
+    # Debug logging for state structure
+    logger = setup_logger(__name__)
+    logger.info("Full state structure:")
+    logger.info(f"State keys: {state.keys()}")
+    logger.info(f"Context keys: {state.get('context', {}).keys()}")
+    logger.info(f"Command history: {state.get('command_history', [])}")
+    for i, cmd in enumerate(state.get("command_history", [])):
+        logger.info(f"Action result {i}: {state.get('context', {}).get(f'action_result_{i}')}")
+
     # Try to get message from different sources in order of preference
     message = state.get("summary")  # First try direct summary
     if not message:
@@ -105,7 +114,6 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
     )
 
     # Debug logging
-    logger = setup_logger(__name__)
     logger.info(f"Command history: {state.get('command_history', [])}")
     logger.info(f"Context metadata: {context}")
 
@@ -125,13 +133,25 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
         if not result:
             result = {"success": True, "output": "", "error": None}
 
-        logger.info(f"Step {i}: cmd={cmd}, result={result}")
+        # Extract output from multiple possible locations
+        output = (
+            result.get("output")
+            or result.get("stdout")
+            or context.get(f"output_{i}")
+            or context.get("last_output")
+            or ""
+        ).strip()
+
+        # Extract error similarly
+        error = result.get("error") or result.get("stderr") or context.get(f"error_{i}") or None
+
+        logger.info(f"Step {i}: cmd={cmd}, result={result}, output={output}")
         steps.append(
             TaskStep(
                 command=cmd,
                 success=result.get("success", True),
-                output=result.get("output") or result.get("stdout", ""),  # Try both output and stdout
-                error=result.get("error") or result.get("stderr"),  # Try both error and stderr
+                output=output,
+                error=error,
                 duration=result.get("duration"),
             )
         )

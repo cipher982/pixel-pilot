@@ -29,5 +29,4 @@ COPY eval/docker/test-x11.sh /test-x11.sh
 COPY eval/docker/run-eval.sh /run-eval.sh
 RUN chmod +x /test-x11.sh /run-eval.sh
 
-EXPOSE 5900
-CMD ["/test-x11.sh"] 
+EXPOSE 5900 

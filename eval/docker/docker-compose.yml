@@ -16,9 +16,5 @@ services:
       - ../../eval:/app/eval:ro
     env_file:
       - ../../.env
-    # Start X11, check environment, then run tests
-    command: >
-      bash -c "Xvfb :0 -screen 0 1024x768x24 -ac &
-      x11vnc -display :0 -forever -nopw &
-      uv run python eval/check_environment.py &&
-      uv run python eval/runner.py"
+    # Use our improved script
+    command: /run-eval.sh
