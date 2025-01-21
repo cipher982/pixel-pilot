@@ -121,7 +121,7 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
         if not result and i == len(command_history) - 1:
             result = context.get("last_action_result")
 
-        # If still no result, assume success (since command completed)
+        # If still no result, create empty result
         if not result:
             result = {"success": True, "output": "", "error": None}
 
@@ -129,10 +129,10 @@ def create_task_result(state: Dict[str, Any], task_description: str) -> AITaskRe
         steps.append(
             TaskStep(
                 command=cmd,
-                success=result.get("success", True),  # Default to True if not specified
-                output=result.get("output", ""),
-                error=result.get("error"),
-                duration=result.get("duration"),  # Add duration from result
+                success=result.get("success", True),
+                output=result.get("output") or result.get("stdout", ""),  # Try both output and stdout
+                error=result.get("error") or result.get("stderr"),  # Try both error and stderr
+                duration=result.get("duration"),
             )
         )
 
