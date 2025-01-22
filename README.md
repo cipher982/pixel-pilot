@@ -34,6 +34,7 @@ Pixel Pilot is an AI-driven system that automates interactions on your computer 
 1. Requirements:
    - Python >= 3.12
    - UV package manager (`pip install uv`)
+   - Docker (optional, for evaluation environment)
 
 2. Setup:
    ```bash
@@ -53,13 +54,31 @@ Pixel Pilot is an AI-driven system that automates interactions on your computer 
    uv run python -m pixelpilot.main -i "Open Notepad and type 'Hello, World!'"
    ```
 
-5. Command Line Options:
-   - `--enable-audio`: Enable audio capture and processing
-   - `--debug`: Run in debug mode with test images
-   - `--task-profile`: Path to task configuration YAML
-   - `--instructions`: Direct task instructions override
-   - `--llm-provider`: Choose LLM provider (openai/local/bedrock/fireworks)
-   - `--label-boxes`: Enable visual debugging of detected elements
+## Evaluation Environment
+
+The project includes a comprehensive Docker-based evaluation system that can test both terminal and GUI interactions:
+
+1. Docker Evaluation Setup:
+   ```bash
+   # Build and start the evaluation environment
+   cd eval/docker
+   docker compose up --build
+   ```
+
+2. Features:
+   - Containerized testing environment with X11 support
+   - VNC access for visual debugging (port 5900)
+   - Automated test case execution
+   - Artifact collection and result analysis
+
+3. Running Evaluations:
+   ```bash
+   # Run all test cases
+   ./eval/docker/run-eval.sh
+
+   # Test X11 setup
+   ./eval/docker/test-x11.sh
+   ```
 
 ## Task Profiles
 Tasks can be defined in YAML profiles containing:
@@ -68,4 +87,25 @@ Tasks can be defined in YAML profiles containing:
 - Custom workflow parameters
 
 The system will automatically determine whether to start in terminal or visual mode based on the task requirements.
+
+## Development and Testing
+
+1. Command Line Options:
+   - `--enable-audio`: Enable audio capture and processing
+   - `--debug`: Run in debug mode with test images
+   - `--task-profile`: Path to task configuration YAML
+   - `--instructions`: Direct task instructions override
+   - `--llm-provider`: Choose LLM provider (openai/local/bedrock/fireworks)
+   - `--label-boxes`: Enable visual debugging of detected elements
+
+2. Docker Development Workflow:
+   - Use the evaluation environment to validate changes
+   - Test both terminal and GUI interactions
+   - Review evaluation artifacts in `eval/artifacts`
+   - Extend test cases in `eval/test_cases`
+
+3. Troubleshooting:
+   - For GUI test issues, connect via VNC to port 5900
+   - Check evaluation logs in the artifacts directory
+   - Verify X11 forwarding with the test script
 
