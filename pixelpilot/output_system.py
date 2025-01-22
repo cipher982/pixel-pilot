@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -183,8 +184,9 @@ def _create_metadata_table(metadata: TaskMetadata) -> Table:
 def display_result(result: AITaskResult, output_format: str = "pretty") -> None:
     """Display task result in specified format."""
     if output_format == "json":
-        # Write to eval result file
-        with open("eval_result.json", "w") as f:
+        # Write to artifacts directory
+        os.makedirs("eval/artifacts", exist_ok=True)
+        with open("eval/artifacts/eval_result.json", "w") as f:
             f.write(result.to_json())
 
     if output_format == "pretty":

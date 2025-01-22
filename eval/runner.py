@@ -42,7 +42,7 @@ def run_eval(test_case: TestCase) -> Dict:
 
         # Read result from file
         try:
-            with open("eval_result.json") as f:
+            with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
                 return {
                     "success": output["task_result"]["success"],
