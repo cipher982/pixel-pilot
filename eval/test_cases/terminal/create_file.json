@@ -1,0 +1,20 @@
+{
+    "task": "create a file called test.txt",
+    "expected_result": {
+        "success": true,
+        "files": {
+            "test.txt": {
+                "exists": true
+            }
+        }
+    },
+    "test_type": "terminal",
+    "expected_trajectory": [
+        "check_path",
+        "create_file"
+    ],
+    "metadata": {
+        "description": "Basic file creation test",
+        "category": "file_operations"
+    }
+} 
