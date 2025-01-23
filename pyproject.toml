@@ -50,6 +50,10 @@ eval = [
     "openai>=1.54.3",
     "psutil>=6.1.0",
 ]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -80,3 +84,11 @@ langchain-community = { git = "https://github.com/hwchase17/langchain.git", subd
 
 [tool.hatch.build.targets.wheel]
 packages = ["pixelpilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["eval/tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=eval"
+filterwarnings = [
+    "ignore::pytest.PytestCollectionWarning:eval.datasets.*"
+]
