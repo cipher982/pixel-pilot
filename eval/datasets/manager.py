@@ -15,13 +15,14 @@ class DatasetManager:
         self.test_dir = test_dir
 
     def load_test_cases(self) -> List[TestCase]:
-        """Load all test cases from the test directory."""
+        """Load all test cases recursively from the test directory."""
         test_cases = []
-        for filename in os.listdir(self.test_dir):
-            if filename.endswith(".json"):
-                test_case = self.load_test_case(os.path.join(self.test_dir, filename))
-                if test_case:
-                    test_cases.append(test_case)
+        for root, _, files in os.walk(self.test_dir):
+            for filename in files:
+                if filename.endswith(".json"):
+                    test_case = self.load_test_case(os.path.join(root, filename))
+                    if test_case:
+                        test_cases.append(test_case)
         return test_cases
 
     def load_test_case(self, path: str) -> Optional[TestCase]:
@@ -38,6 +39,7 @@ class DatasetManager:
         """Save a test case to a JSON file."""
         try:
             path = os.path.join(self.test_dir, filename)
+            os.makedirs(os.path.dirname(path), exist_ok=True)  # Create directories if needed
             with open(path, "w") as f:
                 json.dump(test_case.to_json(), f, indent=2)
             return True

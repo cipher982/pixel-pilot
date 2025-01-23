@@ -5,7 +5,8 @@ from eval.datasets import DatasetManager
 
 def test_load_new_format():
     """Verify we can load the new test case format."""
-    manager = DatasetManager("eval/test_cases/terminal")
+    # Now use root directory since we support recursive loading
+    manager = DatasetManager("eval/test_cases")
     test_cases = manager.load_test_cases()
 
     assert len(test_cases) > 0, "Should find at least one test case"
