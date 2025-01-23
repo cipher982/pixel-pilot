@@ -3,7 +3,6 @@
 import json
 import os
 import subprocess
-from contextlib import nullcontext
 from typing import List
 from typing import Optional
 
@@ -118,38 +117,8 @@ def run_gui_test(test_case: TestCase) -> TestResult:
 
 def run_eval(test_case: TestCase, client: Optional[Client] = None) -> TestResult:
     """Run a single evaluation."""
-    try:
-        # Use context manager for run tracking if client available
-        run_context = (
-            client.run_tracker(
-                project_name=os.getenv("LANGSMITH_PROJECT", "default"),
-                name="PixelPilot Task Execution",
-                inputs={"task": test_case.task},
-            )
-            if client
-            else nullcontext()
-        )
-
-        with run_context as run:
-            # Run based on test type
-            result = run_terminal_test(test_case) if test_case.test_type == "terminal" else run_gui_test(test_case)
-
-            # Update run if available
-            if run and not result.error:
-                run.end(outputs=result.actual_result)
-            elif run:
-                run.end(error=result.error)
-
-            return result
-
-    except Exception as e:
-        return TestResult(
-            test_case=test_case,
-            success=False,
-            actual_result={"error": str(e)},
-            trajectory=[],
-            error=str(e),
-        )
+    # Run based on test type
+    return run_terminal_test(test_case) if test_case.test_type == "terminal" else run_gui_test(test_case)
 
 
 def save_results(results: List[TestResult]) -> None:
@@ -169,14 +138,6 @@ def save_results(results: List[TestResult]) -> None:
 
 def main():
     """Run all test cases."""
-    # Initialize LangSmith client if environment variables are set
-    client = Client() if os.getenv("LANGCHAIN_API_KEY") else None
-
-    if client:
-        print("🔗 Connected to LangSmith")
-    else:
-        print("❌ Not connected to LangSmith")
-
     # Load test cases
     manager = DatasetManager()
     test_cases = manager.load_test_cases()
@@ -186,7 +147,7 @@ def main():
     results = []
     for test_case in test_cases:
         print(f"\n🧪 Running test: {test_case.task}")
-        result = run_eval(test_case, client)
+        result = run_eval(test_case)
         results.append(result)
         print(f"{'✅' if result.success else '❌'} Test completed")
 
