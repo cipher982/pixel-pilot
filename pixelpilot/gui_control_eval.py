@@ -63,11 +63,17 @@ class EvalGUIController(GUIController):
             # Get raw pixels
             raw = root.get_image(0, 0, geometry.width, geometry.height, Xlib.X.ZPixmap, 0xFFFFFFFF)
 
+            # Convert raw data to bytes if it's not already
+            if isinstance(raw.data, str):
+                raw_bytes = raw.data.encode("latin-1")
+            else:
+                raw_bytes = raw.data
+
             # Convert to PIL Image
             image = Image.frombytes(
                 "RGB",
                 (geometry.width, geometry.height),
-                raw.data,
+                raw_bytes,
                 "raw",
                 "BGRX",  # X11 uses BGRX format
             )
@@ -85,6 +91,13 @@ class EvalGUIController(GUIController):
         """Perform mouse click via X11."""
         if not all([self.display, self.screen, self.root]):
             return OperationResult(success=False, message="X11 not initialized")
+
+        # Validate coordinates
+        width, height = self.get_screen_size()
+        if not (0 <= x < width and 0 <= y < height):
+            return OperationResult(
+                success=False, message=f"Invalid coordinates ({x}, {y}), screen size is {width}x{height}"
+            )
 
         try:
             # After the check above, we know these aren't None
@@ -116,6 +129,11 @@ class EvalGUIController(GUIController):
         if not all([self.display, self.screen, self.root]):
             return OperationResult(success=False, message="X11 not initialized")
 
+        # Validate scroll amount
+        MAX_SCROLL = 100  # Reasonable limit for single scroll operation
+        if abs(amount) > MAX_SCROLL:
+            return OperationResult(success=False, message=f"Scroll amount {amount} exceeds maximum of {MAX_SCROLL}")
+
         try:
             # After the check above, we know this isn't None
             display = cast(Display, self.display)
@@ -146,7 +164,11 @@ class EvalGUIController(GUIController):
     def cleanup(self) -> None:
         """Clean up X11 connection."""
         if self.display:
-            self.display.close()
-            self.display = None
-            self.screen = None
-            self.root = None
+            try:
+                self.display.close()
+            except Xerror.XError:
+                pass  # Ignore errors during cleanup
+            finally:
+                self.display = None
+                self.screen = None
+                self.root = None
