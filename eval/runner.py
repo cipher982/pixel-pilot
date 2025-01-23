@@ -21,8 +21,9 @@ from eval.datasets import TestResult
 def run_terminal_test(test_case: TestCase) -> TestResult:
     """Run a terminal-based test."""
     try:
+        print(f"Running command in directory: {os.getcwd()}")
         # Run the command through your agent
-        subprocess.run(
+        result = subprocess.run(
             [
                 "uv",
                 "run",
@@ -38,18 +39,30 @@ def run_terminal_test(test_case: TestCase) -> TestResult:
             text=True,
             check=True,
             env=os.environ.copy(),
+            capture_output=True,  # Capture output for debugging
         )
 
+        print(f"Command output: {result.stdout}")
+        if result.stderr:
+            print(f"Command errors: {result.stderr}")
+
         # Read result from file
-        with open("eval/artifacts/eval_result.json") as f:
-            output = json.load(f)
-            return TestResult(
-                test_case=test_case,
-                success=output["task_result"]["success"],
-                actual_result=output["task_result"],
-                trajectory=output.get("trajectory", []),
-            )
+        try:
+            with open("eval/artifacts/eval_result.json") as f:
+                output = json.load(f)
+                return TestResult(
+                    test_case=test_case,
+                    success=output["task_result"]["success"],
+                    actual_result=output["task_result"],
+                    trajectory=output.get("trajectory", []),
+                )
+        except FileNotFoundError:
+            print("eval_result.json not found - checking current directory")
+            files = os.listdir(".")
+            print(f"Current directory contents: {files}")
+            raise
     except Exception as e:
+        print(f"Error details: {str(e)}")
         return TestResult(
             test_case=test_case,
             success=False,
