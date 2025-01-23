@@ -1,0 +1,30 @@
+{
+    "task": "click the submit button in the quiz window",
+    "expected_result": {
+        "success": true,
+        "interactions": {
+            "click": {
+                "element_id": "submit-button",
+                "performed": true
+            }
+        }
+    },
+    "test_type": "gui",
+    "expected_trajectory": [
+        "locate_window",
+        "find_element",
+        "perform_click"
+    ],
+    "metadata": {
+        "description": "Tests ability to interact with GUI elements",
+        "category": "gui_interactions",
+        "window_info": {
+            "title": "Quiz Application",
+            "element": {
+                "id": "submit-button",
+                "type": "button",
+                "text": "Submit"
+            }
+        }
+    }
+} 
