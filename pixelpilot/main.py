@@ -29,6 +29,8 @@ load_dotenv()
     default="pretty",
     help="Output format (pretty for human readable, json for machine parsing)",
 )
+@click.option("--gui-mode", is_flag=True, help="Enable GUI automation mode")
+@click.option("--window-info", help="JSON string with window information for GUI tests")
 def main(
     enable_audio: bool = False,
     debug: bool = False,
@@ -37,6 +39,8 @@ def main(
     label_boxes: bool = False,
     llm_provider: str = "openai",
     output_format: str = "pretty",
+    gui_mode: bool = False,
+    window_info: Optional[str] = None,
 ):
     """Main entry point for Pixel Pilot."""
     # Load task profile if provided
