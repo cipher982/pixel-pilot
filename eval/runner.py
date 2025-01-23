@@ -1,9 +1,10 @@
+"""Runner for PixelPilot evaluation tests."""
+
 import json
 import os
 import subprocess
 from contextlib import nullcontext
-from dataclasses import dataclass
-from typing import Dict
+from typing import List
 from typing import Optional
 
 from langsmith import Client
@@ -12,25 +13,98 @@ from langsmith.evaluation import EvaluationResult
 from langsmith.schemas import Example
 from langsmith.schemas import Run
 
-
-@dataclass
-class TestCase:
-    task: str
-    expected_result: Dict
-
-    @classmethod
-    def from_file(cls, path: str) -> "TestCase":
-        with open(path) as f:
-            data = json.load(f)
-            return cls(task=data["task"], expected_result=data["expected_result"])
-
-    def to_langsmith_example(self) -> Example:
-        """Convert test case to LangSmith example format"""
-        return Example(inputs={"task": self.task}, outputs=self.expected_result)
+from eval.datasets import DatasetManager
+from eval.datasets import TestCase
+from eval.datasets import TestResult
 
 
-def run_eval(test_case: TestCase, client: Optional[Client] = None) -> Dict:
-    """Run a single evaluation"""
+def run_terminal_test(test_case: TestCase) -> TestResult:
+    """Run a terminal-based test."""
+    try:
+        # Run the command through your agent
+        subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-u",  # Unbuffered output
+                "-m",
+                "pixelpilot.main",
+                "--output-format",
+                "json",
+                "--instructions",
+                test_case.task,
+            ],
+            text=True,
+            check=True,
+            env=os.environ.copy(),
+        )
+
+        # Read result from file
+        with open("eval/artifacts/eval_result.json") as f:
+            output = json.load(f)
+            return TestResult(
+                test_case=test_case,
+                success=output["task_result"]["success"],
+                actual_result=output["task_result"],
+                trajectory=output.get("trajectory", []),
+            )
+    except Exception as e:
+        return TestResult(
+            test_case=test_case,
+            success=False,
+            actual_result={"error": str(e)},
+            trajectory=[],
+            error=str(e),
+        )
+
+
+def run_gui_test(test_case: TestCase) -> TestResult:
+    """Run a GUI-based test."""
+    try:
+        # Similar to terminal test but with GUI flags
+        subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-u",
+                "-m",
+                "pixelpilot.main",
+                "--output-format",
+                "json",
+                "--gui-mode",
+                "--instructions",
+                test_case.task,
+                "--window-info",
+                json.dumps(test_case.metadata.get("window_info", {})),
+            ],
+            text=True,
+            check=True,
+            env=os.environ.copy(),
+        )
+
+        # Read result
+        with open("eval/artifacts/eval_result.json") as f:
+            output = json.load(f)
+            return TestResult(
+                test_case=test_case,
+                success=output["task_result"]["success"],
+                actual_result=output["task_result"],
+                trajectory=output.get("trajectory", []),
+            )
+    except Exception as e:
+        return TestResult(
+            test_case=test_case,
+            success=False,
+            actual_result={"error": str(e)},
+            trajectory=[],
+            error=str(e),
+        )
+
+
+def run_eval(test_case: TestCase, client: Optional[Client] = None) -> TestResult:
+    """Run a single evaluation."""
     try:
         # Use context manager for run tracking if client available
         run_context = (
@@ -44,130 +118,68 @@ def run_eval(test_case: TestCase, client: Optional[Client] = None) -> Dict:
         )
 
         with run_context as run:
-            # Run the command and allow output to flow through
-            _ = subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "-u",  # Unbuffered output
-                    "-m",
-                    "pixelpilot.main",
-                    "--output-format",
-                    "json",
-                    "--instructions",
-                    test_case.task,
-                ],
-                text=True,
-                check=True,
-                env=os.environ.copy(),
-            )
+            # Run based on test type
+            result = run_terminal_test(test_case) if test_case.test_type == "terminal" else run_gui_test(test_case)
 
-            # Read result from file
-            try:
-                with open("eval/artifacts/eval_result.json") as f:
-                    output = json.load(f)
-                    result = {
-                        "success": output["task_result"]["success"],
-                        "actual_result": output["task_result"],
-                        "matches_expected": validate_result(output["task_result"], test_case.expected_result),
-                    }
+            # Update run if available
+            if run and not result.error:
+                run.end(outputs=result.actual_result)
+            elif run:
+                run.end(error=result.error)
 
-                    # Update run if available
-                    if run:
-                        run.end(outputs=output["task_result"])
+            return result
 
-                    return result
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                error_result = {
-                    "success": False,
-                    "error": f"Failed to read results: {str(e)}",
-                }
-                if run:
-                    run.end(error=str(e))
-                return error_result
-    except subprocess.CalledProcessError as e:
-        error_result = {
-            "success": False,
-            "error": f"Process failed with exit code {e.returncode}",
-        }
-        if run:
-            run.end(error=str(e))
-        return error_result
     except Exception as e:
-        error_result = {"success": False, "error": f"Unexpected error: {str(e)}", "exception_type": type(e).__name__}
-        if run:
-            run.end(error=str(e))
-        return error_result
+        return TestResult(
+            test_case=test_case,
+            success=False,
+            actual_result={"error": str(e)},
+            trajectory=[],
+            error=str(e),
+        )
 
 
-def validate_result(actual: Dict, expected: Dict) -> bool:
-    """Validate actual result against expected result"""
-    # Basic file existence checks
-    if "files" in expected:
-        for fname, fspec in expected["files"].items():
-            if fspec.get("exists", True) != os.path.exists(fname):
-                return False
+def save_results(results: List[TestResult]) -> None:
+    """Save test results to file."""
+    output = {
+        "results": [result.to_json() for result in results],
+        "summary": {
+            "total": len(results),
+            "passed": sum(1 for r in results if r.success),
+            "failed": sum(1 for r in results if not r.success),
+        },
+    }
 
-    # Success flag check
-    if "success" in expected:
-        if actual["success"] != expected["success"]:
-            return False
-
-    return True
+    with open("eval/artifacts/eval_results.json", "w") as f:
+        json.dump(output, f, indent=2)
 
 
 def main():
-    """Run all test cases in test_cases directory"""
+    """Run all test cases."""
     # Initialize LangSmith client if environment variables are set
     client = Client() if os.getenv("LANGCHAIN_API_KEY") else None
 
     if client:
         print("🔗 Connected to LangSmith")
-        # Create or get dataset
-        dataset_name = "PixelPilot Evaluation"
-        try:
-            dataset = client.create_dataset(dataset_name)
-        except Exception as _:
-            dataset = client.read_dataset(dataset_name=dataset_name)
     else:
         print("❌ Not connected to LangSmith")
-        dataset = None
 
-    test_dir = "eval/test_cases"
+    # Load test cases
+    manager = DatasetManager()
+    test_cases = manager.load_test_cases()
+    print(f"\n📋 Found {len(test_cases)} test cases")
+
+    # Run tests
     results = []
+    for test_case in test_cases:
+        print(f"\n🧪 Running test: {test_case.task}")
+        result = run_eval(test_case, client)
+        results.append(result)
+        print(f"{'✅' if result.success else '❌'} Test completed")
 
-    for filename in os.listdir(test_dir):
-        if filename.endswith(".json"):
-            test_case = TestCase.from_file(os.path.join(test_dir, filename))
-
-            # Add example to dataset if using LangSmith
-            if client and dataset:
-                client.create_example(
-                    inputs={"task": test_case.task}, outputs=test_case.expected_result, dataset_id=dataset.id
-                )
-
-            # Run evaluation
-            result = run_eval(test_case, client)
-            results.append({"test": filename, **result})
-
-    # Print JSON results as before
-    print(json.dumps({"results": results}, indent=2))
-
-    # Run LangSmith evaluators if available
-    if client and dataset:
-        from langchain.chat_models import ChatOpenAI
-
-        llm = ChatOpenAI(temperature=0)
-        evaluator = TerminalCommandEvaluator(llm)
-
-        runs = client.list_runs(project_name=os.getenv("LANGSMITH_PROJECT", "default"), dataset_name=dataset_name)
-
-        for run in runs:
-            eval_result = evaluator.evaluate_run(run, None)
-            client.create_feedback(run.id, eval_result.key, score=eval_result.score, comment=eval_result.feedback)
-
-        print("\n🔍 LangSmith Evaluation Complete")
+    # Save results
+    save_results(results)
+    print("\n📊 Results saved to eval/artifacts/eval_results.json")
 
 
 class TerminalCommandEvaluator(RunEvaluator):
