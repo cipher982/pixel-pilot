@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Create log directory
-mkdir -p /home/kasm-user/pixel-pilot/logs
+mkdir -p /home/ai/pixel-pilot/logs
 
 # Set log level for agent
 export LOGLEVEL=INFO
@@ -43,7 +43,7 @@ for i in $(seq 1 30); do
 done
 
 # Change to project directory and activate venv
-cd /home/kasm-user/pixel-pilot
+cd /home/ai/pixel-pilot
 . .venv/bin/activate
 
 # Run appropriate command based on mode

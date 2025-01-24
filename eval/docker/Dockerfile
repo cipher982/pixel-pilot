@@ -1,41 +1,38 @@
-FROM kasmweb/ubuntu-jammy-desktop:1.16.0
+FROM ubuntu:22.04
 
-USER root
-
-# Install additional Python tools and build dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3.10-venv \
-    python3.10-dev \
+# Install desktop and required packages
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ubuntu-desktop \
+    ubuntu-gnome-desktop \
+    wget \
+    sudo \
+    python3 \
     python3-pip \
-    python3-xlib \
-    net-tools \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install UV with specific Python version
-RUN python3.10 -V && \
-    python3.10 -m pip install uv
+# Install KasmVNC
+RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.0/kasmvncserver_jammy_1.3.0_amd64.deb \
+    && apt-get update \
+    && apt-get install -y ./kasmvncserver_*.deb \
+    && rm kasmvncserver_*.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch to kasm-user
-USER kasm-user
-WORKDIR /home/kasm-user/pixelpilot
+# Create user and add to groups
+RUN useradd -m -s /bin/bash ai \
+    && adduser ai sudo \
+    && adduser ai ssl-cert
 
-# Copy dependency files first
-COPY --chown=kasm-user:kasm-user pyproject.toml uv.lock ./
+# Set password for ai user (required for sudo)
+RUN echo 'ai:ai' | chpasswd
 
-# Install dependencies with dev extras
-RUN UV_SYSTEM_PYTHON=/usr/bin/python3.10 uv sync --extra dev
+USER ai
+WORKDIR /home/ai
 
-# Copy project files
-COPY --chown=kasm-user:kasm-user pixelpilot/ pixelpilot/
-COPY --chown=kasm-user:kasm-user eval/ eval/
-COPY --chown=kasm-user:kasm-user tests/ tests/
+# Set VNC password
+RUN mkdir -p ~/.vnc \
+    && echo "ai" | vncpasswd -f > ~/.vnc/passwd \
+    && chmod 600 ~/.vnc/passwd
 
-# Environment variables
-ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:1
-ENV PATH="/home/kasm-user/pixelpilot/.venv/bin:${PATH}"
-ENV PYTHONPATH="/home/kasm-user/pixelpilot"
+EXPOSE 6901
 
-# Entry point (uses default from base image) 
+CMD ["vncserver", "-select-de", "gnome", "-fg"] 

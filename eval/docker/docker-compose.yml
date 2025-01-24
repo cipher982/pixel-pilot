@@ -1,31 +1,29 @@
 services:
-  eval:
+  desktop:
     build:
-      context: ../..  # Root of project
-      dockerfile: eval/docker/Dockerfile
-      args:
-        - BUILDKIT_INLINE_CACHE=1
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "6901:6901"  # Kasmweb web interface
+      - "6901:6901"
+    shm_size: 512m
     volumes:
       # Mount code and test files read-only
-      - ../../pixelpilot:/home/kasm-user/pixelpilot/pixelpilot:ro
-      - ../../tests:/home/kasm-user/pixelpilot/tests:ro
-      - ../../eval:/home/kasm-user/pixelpilot/eval:ro
+      - ../../pixelpilot:/home/ai/pixelpilot/pixelpilot:ro
+      - ../../tests:/home/ai/pixelpilot/tests:ro
+      - ../../eval:/home/ai/pixelpilot/eval:ro
       # Mount test cases and artifacts with write access for results
-      - ../../eval/test_cases:/home/kasm-user/pixelpilot/eval/test_cases:ro
-      - ../../eval/artifacts:/home/kasm-user/pixelpilot/eval/artifacts
+      - ../../eval/test_cases:/home/ai/pixelpilot/eval/test_cases:ro
+      - ../../eval/artifacts:/home/ai/pixelpilot/eval/artifacts
     environment:
       - DISPLAY=:1
-      - VNC_PW=nopassword
-      - VNC_VIEW_ONLY_PW=nopassword
-      - KASMVNC_AUTO_RECOVER=true
+      - VNC_PW=ai
       - PYTHONUNBUFFERED=1
       - MODE=${MODE:-eval}  # Default to eval mode
       - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
-      - KASM_AUTH=none
-      - KASM_SKIP_RECAPTCHA=true
+      - SSL_CERT_GEN=false  # Disable SSL cert generation
+      - KASM_VNC_CERT_CN=localhost  # Set certificate common name
+      - KASM_VNC_CERT=/home/ai/.vnc/self.pem  # Certificate path
+      - KASM_VNC_KEY=/home/ai/.vnc/self.key   # Key path
     env_file:
       - ../../.env
-    shm_size: 512m  # Required for Kasmweb desktop
-    command: /home/kasm-user/pixelpilot/eval/docker/scripts/run-eval.sh ${MODE:-eval} 
+    command: /home/ai/pixelpilot/eval/docker/scripts/run-eval.sh ${MODE:-eval} 
