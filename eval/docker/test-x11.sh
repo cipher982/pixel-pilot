@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on any error
+set -e
+
 # Cleanup function
 cleanup() {
     echo "Cleaning up..."
@@ -11,8 +14,8 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Start virtual framebuffer
-Xvfb :0 -screen 0 1024x768x24 -ac &
-export DISPLAY=:0
+Xvfb :99 -screen 0 1024x768x24 -ac &
+export DISPLAY=:99
 
 echo "Waiting for X server to start..."
 for i in $(seq 1 10); do
@@ -21,15 +24,14 @@ for i in $(seq 1 10); do
         break
     fi
     sleep 1
+    if [ $i -eq 10 ]; then
+        echo "X server failed to start"
+        exit 1
+    fi
 done
 
-# Start VNC server
-echo "Starting VNC server..."
-x11vnc -display :0 -forever -nopw &
+# Run the tests
+uv run pytest tests/gui_control/test_eval_gui.py -v
 
-# Run xeyes as a simple test
-echo "Starting xeyes..."
-xeyes &
-
-# Wait for any signal
-wait
+# Clean up
+cleanup

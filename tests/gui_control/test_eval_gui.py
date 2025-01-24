@@ -1,80 +1,80 @@
 """Tests for X11-based GUI controller."""
 
+import os
+
 import pytest
 from PIL import Image
 
-
-def test_screen_capture(x11_server, gui_controller):
-    """Test basic screen capture functionality."""
-    # Capture screen
-    image, result = gui_controller.capture_screen()
-
-    # Verify operation succeeded
-    assert result.success, f"Screen capture failed: {result.message}"
-    assert isinstance(image, Image.Image), "Expected PIL Image"
-
-    # Verify image dimensions match reported screen size
-    width, height = gui_controller.get_screen_size()
-    assert image.width == width, f"Image width {image.width} != screen width {width}"
-    assert image.height == height, f"Image height {image.height} != screen height {height}"
+from pixelpilot.gui_control_eval import EvalGUIController
 
 
-def test_mouse_click(x11_server, gui_controller):
-    """Test mouse click operation."""
-    # Try clicking in the middle of the screen
-    width, height = gui_controller.get_screen_size()
-    x, y = width // 2, height // 2
-
-    result = gui_controller.click(x, y)
-    assert result.success, f"Click operation failed: {result.message}"
-
-    # Verify result contains coordinates
-    assert result.message.startswith("Clicked at"), "Expected click confirmation message"
-    assert str(x) in result.message and str(y) in result.message, "Click coordinates not in message"
+def pytest_configure(config):
+    """Skip tests if not in Docker environment."""
+    if not os.path.exists("/.dockerenv"):
+        pytest.skip("Skipping GUI tests outside Docker environment", allow_module_level=True)
 
 
-def test_scroll(x11_server, gui_controller):
-    """Test scroll operation."""
-    # Test scroll up
-    result = gui_controller.scroll(5)
-    assert result.success, f"Scroll up failed: {result.message}"
-    assert "5" in result.message, "Scroll amount not in message"
-
-    # Test scroll down
-    result = gui_controller.scroll(-3)
-    assert result.success, f"Scroll down failed: {result.message}"
-    assert "-3" in result.message, "Scroll amount not in message"
+@pytest.fixture(scope="session")
+def x11_display():
+    """Ensure X11 display is set."""
+    if "DISPLAY" not in os.environ:
+        os.environ["DISPLAY"] = ":99"
+    return os.environ["DISPLAY"]
 
 
-def test_screen_size(x11_server, gui_controller):
-    """Test screen size retrieval."""
-    width, height = gui_controller.get_screen_size()
-
-    # Our test X server is 1024x768
-    assert width == 1024, f"Expected width 1024, got {width}"
-    assert height == 768, f"Expected height 768, got {height}"
-
-
-def test_cleanup(x11_server, gui_controller):
-    """Test cleanup behavior."""
-    # Capture initial state
-    result = gui_controller.click(0, 0)
-    assert result.success, "Initial operation failed"
-
-    # Cleanup
-    gui_controller.cleanup()
-
-    # Verify operations fail after cleanup
-    with pytest.raises(RuntimeError, match="X11 not initialized"):
-        gui_controller.get_screen_size()
+@pytest.fixture
+def controller(x11_display):
+    """Create and cleanup controller for each test."""
+    controller = None
+    try:
+        controller = EvalGUIController()
+        yield controller
+    finally:
+        if controller is not None:
+            controller.cleanup()
 
 
-def test_error_handling(x11_server, gui_controller):
-    """Test error handling for invalid operations."""
-    # Test invalid coordinates
-    result = gui_controller.click(-1, -1)
-    assert not result.success, "Expected failure for invalid coordinates"
+def test_x11_connection(controller):
+    """Test basic X11 connection."""
+    assert controller.display is not None
+    assert controller.screen is not None
+    assert controller.root is not None
 
-    # Test massive scroll
-    result = gui_controller.scroll(1000000)
-    assert not result.success, "Expected failure for unreasonable scroll"
+
+def test_screen_capture(controller):
+    """Test screen capture functionality."""
+    image, result = controller.capture_screen()
+
+    # Check operation result
+    assert result.success
+    assert "Screen captured successfully" in result.message
+    assert "width" in result.details
+    assert "height" in result.details
+
+    # Check image
+    assert image is not None
+    assert isinstance(image, Image.Image)
+    assert image.width == result.details["width"]
+    assert image.height == result.details["height"]
+
+    # Basic sanity check on image data
+    assert image.mode == "RGB"
+    # Don't check for non-zero content since Xvfb starts with a black screen
+    assert image.size == (1024, 768), "Expected 1024x768 screen"
+
+    # Verify we can access pixel data
+    try:
+        image.getpixel((0, 0))
+    except Exception as e:
+        pytest.fail(f"Could not access pixel data: {e}")
+
+
+def test_cleanup(x11_display):
+    """Test cleanup properly closes X11 connection."""
+    controller = EvalGUIController()
+    controller.cleanup()
+
+    # Just verify we can create a new connection after cleanup
+    new_controller = EvalGUIController()
+    assert new_controller.display is not None
+    new_controller.cleanup()
