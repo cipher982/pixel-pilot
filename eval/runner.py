@@ -7,6 +7,7 @@ from typing import List
 
 from eval.datasets import EvalCase
 from eval.datasets import EvalResult
+from eval.datasets.manager import DatasetManager
 
 
 def run_terminal_test(test_case: EvalCase) -> EvalResult:
@@ -141,3 +142,41 @@ def save_results(results: List[EvalResult]) -> None:
     os.makedirs("eval/artifacts", exist_ok=True)
     with open("eval/artifacts/results.json", "w") as f:
         json.dump(output, f, indent=2)
+
+
+def main():
+    """Main entry point for eval runner."""
+    print("\n🔍 Loading test cases...")
+    manager = DatasetManager("eval/test_cases")
+    test_cases = manager.load_test_cases()
+
+    if not test_cases:
+        print("❌ No test cases found!")
+        print("\nSearched directories:")
+        for root, dirs, files in os.walk("eval/test_cases"):
+            print(f"  {root}/")
+            for f in files:
+                print(f"    - {f}")
+        return
+
+    print(f"\n📋 Found {len(test_cases)} test cases:")
+    for i, test_case in enumerate(test_cases, 1):
+        print(f"  {i}. [{test_case.test_type}] {test_case.task}")
+
+    print("\n🧪 Running tests...")
+    results = []
+
+    for i, test_case in enumerate(test_cases, 1):
+        print(f"\n▶️  Test case {i}/{len(test_cases)}: {test_case.task}")
+        result = run_eval(test_case)
+        results.append(result)
+        print(f"{'✅' if result.success else '❌'} Result: {result.actual_result}")
+
+    save_results(results)
+    print("\n📊 Results Summary:")
+    passed = sum(1 for r in results if r.success)
+    print(f"Passed: {passed}/{len(results)} ({passed/len(results)*100:.1f}%)")
+
+
+if __name__ == "__main__":
+    main()
