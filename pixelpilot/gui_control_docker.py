@@ -1,4 +1,4 @@
-"""X11-based GUI controller for evaluation environment."""
+"""Docker-based GUI controller using X11."""
 
 import os
 import re
@@ -28,8 +28,8 @@ def _normalize_display(display: str) -> str:
     return display
 
 
-class EvalGUIController(GUIController):
-    """X11-based implementation for Docker/evaluation environment."""
+class DockerGUIController(GUIController):
+    """Docker-based GUI controller using X11 display server."""
 
     def __init__(self):
         """Initialize X11 connection."""

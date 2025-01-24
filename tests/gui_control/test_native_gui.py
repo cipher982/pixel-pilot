@@ -1,9 +1,9 @@
-"""Tests for host GUI controller (PyAutoGUI)."""
+"""Tests for native GUI controller."""
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_host import HostGUIController
+from pixelpilot.gui_control_native import NativeGUIController
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -15,10 +15,8 @@ def check_environment(is_host):
 
 @pytest.fixture
 def controller():
-    """Create and cleanup controller for each test."""
-    controller = HostGUIController()
-    yield controller
-    controller.cleanup()
+    """Create controller for testing."""
+    return NativeGUIController()
 
 
 def test_screen_capture(controller):

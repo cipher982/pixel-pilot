@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from eval.datasets import TestCase
+from eval.datasets import EvalCase
 from eval.runner import run_eval
 from eval.runner import run_gui_test
 from eval.runner import run_terminal_test
@@ -15,7 +15,7 @@ from eval.runner import run_terminal_test
 @pytest.fixture
 def terminal_test_case():
     """Create a sample terminal test case."""
-    return TestCase.from_json(
+    return EvalCase.from_json(
         {
             "task": "create a file called test.txt",
             "expected_result": {"success": True, "files": {"test.txt": {"exists": True}}},
@@ -28,7 +28,7 @@ def terminal_test_case():
 @pytest.fixture
 def gui_test_case():
     """Create a sample GUI test case."""
-    return TestCase.from_json(
+    return EvalCase.from_json(
         {
             "task": "click the submit button",
             "expected_result": {

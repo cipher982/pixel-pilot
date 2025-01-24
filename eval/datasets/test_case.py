@@ -9,7 +9,7 @@ from typing import Optional
 
 
 @dataclass
-class TestCase:
+class EvalCase:
     """Represents a single test case."""
 
     task: str
@@ -19,8 +19,8 @@ class TestCase:
     metadata: Dict = field(default_factory=dict)
 
     @classmethod
-    def from_json(cls, data: Dict) -> "TestCase":
-        """Create a TestCase from a JSON dictionary."""
+    def from_json(cls, data: Dict) -> "EvalCase":
+        """Create a EvalCase from a JSON dictionary."""
         # Default to terminal type for backward compatibility
         test_type = data.get("test_type", "terminal")
         return cls(
@@ -43,10 +43,10 @@ class TestCase:
 
 
 @dataclass
-class TestResult:
+class EvalResult:
     """Represents the result of a test execution."""
 
-    test_case: TestCase
+    test_case: EvalCase
     success: bool
     actual_result: Dict
     trajectory: List[str]

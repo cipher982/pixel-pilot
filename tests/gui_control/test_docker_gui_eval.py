@@ -1,18 +1,18 @@
-"""Tests for X11-based GUI controller."""
+"""Tests for Docker GUI controller in evaluation environment."""
 
 import os
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_eval import EvalGUIController
+from pixelpilot.gui_control_docker import DockerGUIController
 
 
 @pytest.fixture(scope="session", autouse=True)
 def check_environment(is_docker):
     """Skip these tests outside Docker environment."""
     if not is_docker:
-        pytest.skip("Skipping X11 tests outside Docker environment")
+        pytest.skip("Skipping Docker GUI tests outside Docker environment")
 
 
 @pytest.fixture(scope="session")
@@ -28,7 +28,7 @@ def controller(x11_display):
     """Create and cleanup controller for each test."""
     controller = None
     try:
-        controller = EvalGUIController()
+        controller = DockerGUIController()
         yield controller
     finally:
         if controller is not None:
@@ -72,10 +72,10 @@ def test_screen_capture(controller):
 
 def test_cleanup(x11_display):
     """Test cleanup properly closes X11 connection."""
-    controller = EvalGUIController()
+    controller = DockerGUIController()
     controller.cleanup()
 
     # Just verify we can create a new connection after cleanup
-    new_controller = EvalGUIController()
+    new_controller = DockerGUIController()
     assert new_controller.display is not None
     new_controller.cleanup()

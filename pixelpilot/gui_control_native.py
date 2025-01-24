@@ -1,4 +1,4 @@
-"""Host GUI controller using PyAutoGUI."""
+"""Native GUI controller using PyAutoGUI."""
 
 from typing import Optional
 from typing import Tuple
@@ -13,8 +13,8 @@ from pixelpilot.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-class HostGUIController(GUIController):
-    """Native GUI control using PyAutoGUI."""
+class NativeGUIController(GUIController):
+    """Native GUI control using system-specific automation (via PyAutoGUI)."""
 
     def __init__(self):
         """Initialize controller."""

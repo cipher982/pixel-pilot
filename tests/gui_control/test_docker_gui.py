@@ -1,21 +1,24 @@
-"""Tests for X11-based GUI controller."""
+"""Tests for Docker-based GUI controller."""
 
 import os
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_eval import EvalGUIController
-
-
-def pytest_configure(config):
-    """Skip tests if not in Docker environment."""
-    if not os.path.exists("/.dockerenv"):
-        pytest.skip("Skipping GUI tests outside Docker environment", allow_module_level=True)
+from pixelpilot.gui_control_docker import DockerGUIController
 
 
 @pytest.fixture(scope="session")
-def x11_display():
+def docker_check():
+    """Skip tests if not in Docker environment."""
+    # These tests use X11-based GUI automation which only works in our Docker environment.
+    # For local development, we use the native GUI controller implementation.
+    if not os.path.exists("/.dockerenv"):
+        pytest.skip("Skipping Docker GUI tests - these only run in Docker environment")
+
+
+@pytest.fixture(scope="session")
+def x11_display(docker_check):
     """Ensure X11 display is set."""
     if "DISPLAY" not in os.environ:
         os.environ["DISPLAY"] = ":99"
@@ -27,7 +30,7 @@ def controller(x11_display):
     """Create and cleanup controller for each test."""
     controller = None
     try:
-        controller = EvalGUIController()
+        controller = DockerGUIController()
         yield controller
     finally:
         if controller is not None:
@@ -70,11 +73,10 @@ def test_screen_capture(controller):
 
 
 def test_cleanup(x11_display):
-    """Test cleanup properly closes X11 connection."""
-    controller = EvalGUIController()
-    controller.cleanup()
-
-    # Just verify we can create a new connection after cleanup
-    new_controller = EvalGUIController()
-    assert new_controller.display is not None
-    new_controller.cleanup()
+    """Test cleanup allows creating new controllers."""
+    # Create and cleanup several controllers in sequence
+    # If cleanup fails, subsequent controller creation will fail
+    for _ in range(3):
+        controller = DockerGUIController()
+        assert controller.display is not None  # Verify connection works
+        controller.cleanup()
