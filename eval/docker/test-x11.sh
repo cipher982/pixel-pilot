@@ -30,8 +30,9 @@ for i in $(seq 1 10); do
     fi
 done
 
-# Run the tests
-uv run pytest tests/gui_control/test_eval_gui.py -v
+# Run all tests
+echo "Running all tests..."
+uv run pytest tests -v
 
 # Clean up
 cleanup

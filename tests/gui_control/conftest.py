@@ -134,3 +134,15 @@ def gui_controller():
         yield controller
     finally:
         controller.cleanup()
+
+
+@pytest.fixture(scope="session")
+def is_docker():
+    """Detect if we're running in Docker."""
+    return os.path.exists("/.dockerenv")
+
+
+@pytest.fixture(scope="session")
+def is_host():
+    """Detect if we're running on host machine."""
+    return not os.path.exists("/.dockerenv")

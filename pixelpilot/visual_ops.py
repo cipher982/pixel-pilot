@@ -1,15 +1,16 @@
 """Visual operations module."""
 
+import os
 from typing import Any
 from typing import Dict
 from typing import Optional
 
-import pyautogui
-
+from pixelpilot.gui_control import GUIController
+from pixelpilot.gui_control_eval import EvalGUIController
+from pixelpilot.gui_control_host import HostGUIController
 from pixelpilot.logger import setup_logger
 from pixelpilot.models import Action
 from pixelpilot.state_management import SharedState
-from pixelpilot.window_capture import WindowCapture
 
 logger = setup_logger(__name__)
 
@@ -20,7 +21,12 @@ class VisualOperations:
     def __init__(self, window_info: Optional[Dict[str, Any]] = None):
         """Initialize visual operations."""
         self.window_info = window_info or {}
-        self.window_capture = WindowCapture()
+
+        # Use appropriate controller based on environment
+        if os.path.exists("/.dockerenv"):
+            self.controller: GUIController = EvalGUIController()
+        else:
+            self.controller = HostGUIController()
 
     def execute_visual_action(self, state: SharedState) -> SharedState:
         """Execute a visual action."""
@@ -34,21 +40,21 @@ class VisualOperations:
 
         try:
             # Capture before state
-            before_screen = self.window_capture.capture_window(self.window_info)
+            before_screen, _ = self.controller.capture_screen()
 
             if operation == "click":
                 x, y = coordinates.get("x", 0), coordinates.get("y", 0)
-                pyautogui.click(x=x, y=y)
-                state["context"]["last_action_result"] = {"success": True, "output": f"Clicked at ({x}, {y})"}
-            elif operation == "scroll":
-                amount = coordinates.get("amount", 0)
-                pyautogui.scroll(amount)
-                state["context"]["last_action_result"] = {"success": True, "output": f"Scrolled {amount} units"}
+                result = self.controller.click(x=x, y=y)
+                state["context"]["last_action_result"] = result.__dict__
+            elif operation == "type":
+                text = args.get("text", "")
+                result = self.controller.type_text(text)
+                state["context"]["last_action_result"] = result.__dict__
             else:
                 raise ValueError(f"Unknown visual operation: {operation}")
 
             # Capture after state
-            after_screen = self.window_capture.capture_window(self.window_info)
+            after_screen, _ = self.controller.capture_screen()
 
             # Store screenshots for verification
             state["context"]["before_screen"] = before_screen
@@ -56,9 +62,18 @@ class VisualOperations:
 
         except Exception as e:
             logger.error(f"Visual operation failed: {e}")
-            state["context"]["last_action_result"] = {"success": False, "output": None, "error": str(e)}
+            state["context"]["last_action_result"] = {
+                "success": False,
+                "message": str(e),
+                "details": {},
+            }
 
         return state
+
+    def cleanup(self) -> None:
+        """Clean up resources."""
+        if hasattr(self, "controller"):
+            self.controller.cleanup()
 
     def analyze_visual_result(self, state: SharedState) -> SharedState:
         """Analyze the result of a visual operation using AI verification."""
