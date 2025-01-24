@@ -4,16 +4,12 @@ version = "0.1.0"
 description = "AI agent for completing computer tasks"
 requires-python = ">=3.12"
 dependencies = [
-    "accelerate>=1.1.1",
     "click>=8.1.7",
     "debugpy>=1.8.8",
     "dill>=0.3.9",
-    "easyocr>=1.7.2",
-    "einops>=0.8.0",
     "inquirer>=3.4.0",
     "langchain-aws>=0.2.9",
     "langchain-community",
-    "langchain-huggingface>=0.1.2",
     "langchain-openai>=0.2.6",
     "langgraph>=0.2.45",
     "langsmith>=0.1.142",
@@ -27,6 +23,14 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "rich>=13.9.4",
     "sounddevice>=0.5.1",
+]
+
+[project.optional-dependencies]
+deep = [
+    "accelerate>=1.1.1",
+    "einops>=0.8.0",
+    "easyocr>=1.7.2",
+    "langchain-huggingface>=0.1.2",
     "supervision>=0.25.0",
     "text-generation>=0.7.0",
     "timm>=1.0.11",
@@ -36,8 +40,6 @@ dependencies = [
     "transformers>=4.46.2",
     "ultralytics>=8.3.23",
 ]
-
-[project.optional-dependencies]
 macos = [
     "pyobjc-framework-quartz>=10.3.1",
 ]

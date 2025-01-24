@@ -1,0 +1,27 @@
+services:
+  eval:
+    build:
+      context: ../..  # Root of project
+      dockerfile: eval/docker/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    ports:
+      - "6901:6901"  # Kasmweb web interface
+    volumes:
+      # Mount code and test files read-only
+      - ../../pixelpilot:/home/kasm-user/pixelpilot/pixelpilot:ro
+      - ../../tests:/home/kasm-user/pixelpilot/tests:ro
+      - ../../eval:/home/kasm-user/pixelpilot/eval:ro
+      # Mount test cases and artifacts with write access for results
+      - ../../eval/test_cases:/home/kasm-user/pixelpilot/eval/test_cases:ro
+      - ../../eval/artifacts:/home/kasm-user/pixelpilot/eval/artifacts
+    environment:
+      - DISPLAY=:1
+      - VNC_PW=password
+      - PYTHONUNBUFFERED=1
+      - MODE=${MODE:-eval}  # Default to eval mode
+      - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
+    env_file:
+      - ../../.env
+    shm_size: 512m  # Required for Kasmweb desktop
+    command: /home/kasm-user/pixelpilot/eval/docker/scripts/run-eval.sh ${MODE:-eval} 

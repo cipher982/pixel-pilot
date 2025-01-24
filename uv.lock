@@ -1592,12 +1592,9 @@ name = "pixelpilot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "accelerate" },
     { name = "click" },
     { name = "debugpy" },
     { name = "dill" },
-    { name = "easyocr" },
-    { name = "einops" },
     { name = "inquirer" },
     { name = "langchain-aws" },
     { name = "langchain-community" },
@@ -1615,6 +1612,13 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "sounddevice" },
+]
+
+[package.optional-dependencies]
+deep = [
+    { name = "accelerate" },
+    { name = "easyocr" },
+    { name = "einops" },
     { name = "supervision" },
     { name = "text-generation" },
     { name = "timm" },
@@ -1625,8 +1629,6 @@ dependencies = [
     { name = "ultralytics", version = "8.3.23", source = { registry = "https://pypi.org/simple" }, marker = "platform_system != 'Darwin' or sys_platform == 'darwin' or python_full_version >= '3.12.4'" },
     { name = "ultralytics", version = "8.3.31", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12.4' and platform_system == 'Darwin' and sys_platform != 'darwin'" },
 ]
-
-[package.optional-dependencies]
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1647,13 +1649,13 @@ macos = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=1.1.1" },
+    { name = "accelerate", marker = "extra == 'deep'", specifier = ">=1.1.1" },
     { name = "click", specifier = ">=8.1.7" },
     { name = "click", marker = "extra == 'eval'", specifier = ">=8.1.7" },
     { name = "debugpy", specifier = ">=1.8.8" },
     { name = "dill", specifier = ">=0.3.9" },
-    { name = "easyocr", specifier = ">=1.7.2" },
-    { name = "einops", specifier = ">=0.8.0" },
+    { name = "easyocr", marker = "extra == 'deep'", specifier = ">=1.7.2" },
+    { name = "einops", marker = "extra == 'deep'", specifier = ">=0.8.0" },
     { name = "inquirer", specifier = ">=3.4.0" },
     { name = "langchain-aws", specifier = ">=0.2.9" },
     { name = "langchain-community", git = "https://github.com/hwchase17/langchain.git?subdirectory=libs%2Fcommunity&rev=master" },
@@ -1681,14 +1683,14 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9.4" },
     { name = "rich", marker = "extra == 'eval'", specifier = ">=13.9.4" },
     { name = "sounddevice", specifier = ">=0.5.1" },
-    { name = "supervision", specifier = ">=0.25.0" },
-    { name = "text-generation", specifier = ">=0.7.0" },
-    { name = "timm", specifier = ">=1.0.11" },
-    { name = "torch", specifier = ">=2.5.1" },
-    { name = "torchaudio", specifier = ">=2.5.1" },
-    { name = "torchvision", specifier = ">=0.20.1" },
-    { name = "transformers", specifier = ">=4.46.2" },
-    { name = "ultralytics", specifier = ">=8.3.23" },
+    { name = "supervision", marker = "extra == 'deep'", specifier = ">=0.25.0" },
+    { name = "text-generation", marker = "extra == 'deep'", specifier = ">=0.7.0" },
+    { name = "timm", marker = "extra == 'deep'", specifier = ">=1.0.11" },
+    { name = "torch", marker = "extra == 'deep'", specifier = ">=2.5.1" },
+    { name = "torchaudio", marker = "extra == 'deep'", specifier = ">=2.5.1" },
+    { name = "torchvision", marker = "extra == 'deep'", specifier = ">=0.20.1" },
+    { name = "transformers", marker = "extra == 'deep'", specifier = ">=4.46.2" },
+    { name = "ultralytics", marker = "extra == 'deep'", specifier = ">=8.3.23" },
 ]
 
 [[package]]
