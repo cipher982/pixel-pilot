@@ -29,9 +29,8 @@ echo "Building container..."
 docker compose -f eval/docker/docker-compose.yml build
 
 echo "Starting container in $MODE mode..."
-docker compose -f eval/docker/docker-compose.yml run \
-    --rm \
-    -e MODE=$MODE \
+export MODE=$MODE
+docker compose -f eval/docker/docker-compose.yml up \
     eval
 
 echo "Done!" 

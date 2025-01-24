@@ -17,10 +17,14 @@ services:
       - ../../eval/artifacts:/home/kasm-user/pixelpilot/eval/artifacts
     environment:
       - DISPLAY=:1
-      - VNC_PW=password
+      - VNC_PW=nopassword
+      - VNC_VIEW_ONLY_PW=nopassword
+      - KASMVNC_AUTO_RECOVER=true
       - PYTHONUNBUFFERED=1
       - MODE=${MODE:-eval}  # Default to eval mode
       - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
+      - KASM_AUTH=none
+      - KASM_SKIP_RECAPTCHA=true
     env_file:
       - ../../.env
     shm_size: 512m  # Required for Kasmweb desktop
