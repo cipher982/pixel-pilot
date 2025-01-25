@@ -18,6 +18,12 @@ if [[ "$MODE" != "test" && "$MODE" != "eval" ]]; then
     show_help
 fi
 
+# Set up XDG runtime directory
+export XDG_RUNTIME_DIR=/tmp/runtime-ai
+mkdir -p $XDG_RUNTIME_DIR
+chmod 700 $XDG_RUNTIME_DIR
+chown ai:ai $XDG_RUNTIME_DIR
+
 # Create necessary directories
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
@@ -47,15 +53,17 @@ set -x  # Re-enable debug for important steps
 sudo /usr/bin/mkdir -p /var/run/dbus
 sudo /usr/bin/dbus-daemon --system --fork
 
-# Start session dbus
-dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork &
-export $(dbus-launch)
+# Start session dbus (redirect warnings)
+dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork 2>/dev/null &
+export $(dbus-launch 2>/dev/null)
 
-# Start GNOME session
-gnome-session &
+# Start GNOME session (redirect non-critical output)
+echo "Starting GNOME session..."
+gnome-session --debug 2>/dev/null &
 
 # Start VNC server for optional access
-x11vnc -display :1 -nopw -forever -shared &
+echo "Starting VNC server..."
+x11vnc -display :1 -nopw -forever -shared -quiet >/dev/null 2>&1 &
 
 # Change to project directory
 cd /app
