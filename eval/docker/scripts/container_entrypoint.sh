@@ -19,12 +19,10 @@ if [[ "$MODE" != "test" && "$MODE" != "eval" ]]; then
     show_help
 fi
 
-# Set up XDG runtime directory
+# Set up runtime directory and environment
 echo "Setting up runtime directory..."
-export XDG_RUNTIME_DIR=/tmp/runtime-ai
-mkdir -p $XDG_RUNTIME_DIR
-chmod 700 $XDG_RUNTIME_DIR
-chown ai:ai $XDG_RUNTIME_DIR
+export XDG_RUNTIME_DIR="/run/user/1000"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus"
 
 # Set log level for agent
 export LOGLEVEL=INFO
@@ -47,18 +45,31 @@ done
 
 # Start system dbus (requires sudo)
 echo "Starting system services..."
+echo "  Creating dbus directory..."
 sudo /usr/bin/mkdir -p /var/run/dbus >/dev/null 2>&1
+echo "  Starting system dbus..."
 sudo /usr/bin/dbus-daemon --system --fork >/dev/null 2>&1
+echo "  System dbus started"
 
 # Start session dbus
-dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork >/dev/null 2>&1 &
+echo "  Starting session dbus daemon..."
+dbus-daemon --session --fork >/dev/null 2>&1
 DBUS_PID=$!
+echo "  Launching dbus session..."
 eval $(dbus-launch --sh-syntax 2>/dev/null)
+echo "  Session dbus started"
 
-# Start GNOME session
-echo "Starting GNOME session..."
-gnome-session >/dev/null 2>&1 &
-GNOME_PID=$!
+# Start XFCE session
+echo "Starting XFCE session..."
+startxfce4 &
+XFCE_PID=$!
+
+# Wait for XFCE to be fully ready
+echo "Waiting for XFCE..."
+while ! pgrep -f "xfce4-session" > /dev/null; do
+    sleep 1
+done
+echo "XFCE session detected"
 
 # Start VNC server
 echo "Starting VNC server..."
@@ -73,12 +84,17 @@ echo "Working directory: $(pwd)"
 if [[ "$VNC_WAIT" == "true" ]]; then
     # Make sure output is flushed
     exec 1>&1
+    
+    # Clear any pending input
+    while read -t 0; do read; done
+    
     echo -e "\n⏸️  PAUSED FOR VNC CONNECTION"
     echo "----------------------------------------"
     echo "VNC server is ready on port 5900"
-    echo "1. Connect with your VNC viewer"
-    echo "2. Press Enter when ready to start tests"
+    echo "XFCE session is running (auto-login enabled)"
+    echo "Press Enter when ready to start tests"
     echo "----------------------------------------"
+    
     read -p "> " -r
     echo "Starting tests..."
 fi
@@ -95,6 +111,6 @@ fi
 # Keep container running if in eval mode
 if [[ "$MODE" == "eval" ]]; then
     echo "Evaluation complete. VNC server running on port 5900..."
-    # Wait for all background processes
-    wait $XVFB_PID $DBUS_PID $GNOME_PID $VNC_PID
+    # Wait for remaining background processes
+    wait $XVFB_PID $XFCE_PID $VNC_PID
 fi 

@@ -2,8 +2,8 @@ FROM ubuntu:22.04
 
 # Install desktop and required packages
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ubuntu-desktop \
-    ubuntu-gnome-desktop \
+    xfce4 \
+    xfce4-terminal \
     x11vnc \
     xserver-xorg-legacy \
     wget \
@@ -11,6 +11,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
     git \
+    ssl-cert \
     && rm -rf /var/lib/apt/lists/*
 
 # Add xvfb in separate layer
@@ -22,12 +23,23 @@ RUN apt-get update && apt-get install -y dbus-x11 && rm -rf /var/lib/apt/lists/*
 # Configure xserver-xorg-legacy
 RUN sed -i 's/allowed_users=console/allowed_users=anybody/' /etc/X11/Xwrapper.config
 
+# Set up proper dbus directories and permissions
+RUN mkdir -p /run/dbus \
+    && chown messagebus:messagebus /run/dbus \
+    && mkdir -p /var/run/dbus \
+    && chown messagebus:messagebus /var/run/dbus \
+    && mkdir -p /run/user/1000 \
+    && chmod 700 /run/user/1000
+
 # Create user and add to groups
 RUN useradd -m -s /bin/bash ai \
     && adduser ai sudo \
     && adduser ai ssl-cert \
     && adduser ai video \
     && adduser ai tty
+
+# Set ownership of runtime directory
+RUN chown ai:ai /run/user/1000
 
 # Set password for ai user (required for sudo)
 RUN echo 'ai:ai' | chpasswd
