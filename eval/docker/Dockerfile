@@ -13,6 +13,12 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Add xvfb in separate layer
+RUN apt-get update && apt-get install -y xvfb && rm -rf /var/lib/apt/lists/*
+
+# Add dbus in separate layer
+RUN apt-get update && apt-get install -y dbus-x11 && rm -rf /var/lib/apt/lists/*
+
 # Configure xserver-xorg-legacy
 RUN sed -i 's/allowed_users=console/allowed_users=anybody/' /etc/X11/Xwrapper.config
 
@@ -40,6 +46,9 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies with dev extras
 RUN pip3 install uv
 RUN uv sync --extra dev
+
+# Fix permissions for app directory
+RUN chown -R ai:ai /app
 
 USER ai
 WORKDIR /home/ai

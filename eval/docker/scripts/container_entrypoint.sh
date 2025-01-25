@@ -25,9 +25,9 @@ chmod 1777 /tmp/.X11-unix
 # Set log level for agent
 export LOGLEVEL=INFO
 
-# Start X server directly
+# Start virtual framebuffer X server
 set -x  # Enable debug for important steps
-Xorg :1 &
+Xvfb :1 -screen 0 1280x720x24 &
 export DISPLAY=:1
 set +x  # Disable debug for polling
 
@@ -42,6 +42,10 @@ for i in $(seq 1 30); do
 done
 
 set -x  # Re-enable debug for important steps
+# Start dbus
+dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork &
+export $(dbus-launch)
+
 # Start GNOME session
 gnome-session &
 
