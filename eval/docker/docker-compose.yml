@@ -1,8 +1,17 @@
+version: '3'
+
 services:
   eval:
     build:
       context: ../..  # Root of project
       dockerfile: eval/docker/Dockerfile
+    container_name: docker-eval-1
+    environment:
+      - MODE=${MODE:-eval}  # Default to eval mode
+      - VNC_WAIT=${VNC_WAIT:-false}
+      - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
+    stdin_open: true  # docker run -i
+    tty: true        # docker run -t
     ports:
       - "5900:5900"
     shm_size: 512m
@@ -14,17 +23,9 @@ services:
       # Mount test cases and artifacts with write access for results
       - ../../eval/test_cases:/app/eval/test_cases:ro
       - ../../eval/artifacts:/app/eval/artifacts
-    environment:
-      - DISPLAY=:1
-      - PYTHONUNBUFFERED=1
-      - MODE=${MODE:-eval}  # Default to eval mode
-      - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
     env_file:
       - ../../.env
     # Use entrypoint from Dockerfile
     entrypoint: ["/app/eval/docker/scripts/container_entrypoint.sh"]
     # Default command is the mode
-    command: ["${MODE:-eval}"]
-    # Run in interactive mode
-    stdin_open: true
-    tty: true 
+    command: ["${MODE:-eval}"] 

@@ -37,6 +37,11 @@ RUN echo "ai ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /var/run/dbus" >> /etc/sudoer
     echo "ai ALL=(ALL) NOPASSWD: /usr/bin/dbus-daemon" >> /etc/sudoers.d/ai && \
     chmod 0440 /etc/sudoers.d/ai
 
+# Set up X11 socket directory
+RUN mkdir -p /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chown root:root /tmp/.X11-unix
+
 # Basic X11 setup
 RUN mkdir -p /home/ai/.vnc \
     && chown -R ai:ai /home/ai/.vnc \
