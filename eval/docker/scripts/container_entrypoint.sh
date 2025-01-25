@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Enable command logging
-set -x
-
 # Help message
 show_help() {
     echo "Usage: $0 [test|eval]"
@@ -28,9 +25,11 @@ chmod 1777 /tmp/.X11-unix
 # Set log level for agent
 export LOGLEVEL=INFO
 
-# Start X server and GNOME
-startx -- :1 &
+# Start X server directly
+set -x  # Enable debug for important steps
+Xorg :1 &
 export DISPLAY=:1
+set +x  # Disable debug for polling
 
 # Wait for desktop to be ready
 echo "🖥️  Waiting for desktop environment..."
@@ -41,6 +40,10 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+
+set -x  # Re-enable debug for important steps
+# Start GNOME session
+gnome-session &
 
 # Start VNC server for optional access
 x11vnc -display :1 -nopw -forever -shared &

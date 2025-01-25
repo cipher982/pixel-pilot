@@ -5,6 +5,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ubuntu-desktop \
     ubuntu-gnome-desktop \
     x11vnc \
+    xserver-xorg-legacy \
     wget \
     sudo \
     python3 \
@@ -12,10 +13,15 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Configure xserver-xorg-legacy
+RUN sed -i 's/allowed_users=console/allowed_users=anybody/' /etc/X11/Xwrapper.config
+
 # Create user and add to groups
 RUN useradd -m -s /bin/bash ai \
     && adduser ai sudo \
-    && adduser ai ssl-cert
+    && adduser ai ssl-cert \
+    && adduser ai video \
+    && adduser ai tty
 
 # Set password for ai user (required for sudo)
 RUN echo 'ai:ai' | chpasswd
