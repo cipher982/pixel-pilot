@@ -4,18 +4,12 @@ FROM ubuntu:22.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ubuntu-desktop \
     ubuntu-gnome-desktop \
+    x11vnc \
     wget \
     sudo \
     python3 \
     python3-pip \
     git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install KasmVNC
-RUN wget https://github.com/kasmtech/KasmVNC/releases/download/v1.3.0/kasmvncserver_jammy_1.3.0_arm64.deb \
-    && apt-get update \
-    && apt-get install -y ./kasmvncserver_*.deb \
-    && rm kasmvncserver_*.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Create user and add to groups
@@ -26,6 +20,12 @@ RUN useradd -m -s /bin/bash ai \
 # Set password for ai user (required for sudo)
 RUN echo 'ai:ai' | chpasswd
 
+# Basic X11 setup
+RUN mkdir -p /home/ai/.vnc \
+    && chown -R ai:ai /home/ai/.vnc \
+    && touch /home/ai/.Xauthority \
+    && chown ai:ai /home/ai/.Xauthority
+
 WORKDIR /app
 
 # Copy dependency files first
@@ -35,14 +35,12 @@ COPY pyproject.toml uv.lock ./
 RUN pip3 install uv
 RUN uv sync --extra dev
 
-# Switch to user
 USER ai
 WORKDIR /home/ai
 
-# Create VNC directory and setup KasmVNC user
-RUN mkdir -p ~/.vnc \
-    && vncpasswd -u ai -w -r
+EXPOSE 5900
 
-EXPOSE 6901
-
-CMD ["vncserver", "-select-de", "gnome"] 
+# Use entrypoint script to handle modes
+COPY eval/docker/scripts/container_entrypoint.sh /app/eval/docker/scripts/
+ENTRYPOINT ["/app/eval/docker/scripts/container_entrypoint.sh"]
+CMD ["eval"] 

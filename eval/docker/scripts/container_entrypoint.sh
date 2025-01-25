@@ -13,62 +13,53 @@ show_help() {
     exit 1
 }
 
-# Parse mode
-MODE=${1:-eval}  # Default to eval mode
+# Parse mode from first argument or environment variable
+MODE=${1:-${MODE:-eval}}  # Use first arg, fallback to env MODE, default to eval
+echo "Starting container in $MODE mode..."
+
 if [[ "$MODE" != "test" && "$MODE" != "eval" ]]; then
     show_help
 fi
 
-# Cleanup function
-cleanup() {
-    echo "Cleaning up..."
-    kill $(jobs -p) 2>/dev/null
-    exit 0
-}
-
-# Set up signal handling
-trap cleanup SIGINT SIGTERM
+# Create necessary directories
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
 
 # Set log level for agent
 export LOGLEVEL=INFO
 
-# Start VNC server
-echo "🚀 Starting VNC server..."
-date
-echo "Starting VNC server with Gnome..."
-vncserver -select-de gnome &
-VNC_PID=$!
-echo "VNC server started with PID: $VNC_PID"
+# Start X server and GNOME
+startx -- :1 &
+export DISPLAY=:1
 
 # Wait for desktop to be ready
 echo "🖥️  Waiting for desktop environment..."
-date
 for i in $(seq 1 30); do
-    echo "Attempt $i: Checking if X server is ready..."
-    if xdpyinfo >/dev/null 2>&1; then
-        echo "Desktop is ready at attempt $i"
-        date
+    if DISPLAY=:1 xdpyinfo >/dev/null 2>&1; then
+        echo "Desktop is ready!"
         break
     fi
     sleep 1
 done
 
-# List running processes
-echo "Running processes:"
-ps aux | grep -E 'vnc|gnome'
+# Start VNC server for optional access
+x11vnc -display :1 -nopw -forever -shared &
 
 # Change to project directory
 cd /app
 echo "Working directory: $(pwd)"
 
-# Run appropriate command based on mode
+# Run tests or evaluations based on mode
 if [[ "$MODE" == "test" ]]; then
-    echo -e "\n🧪 Running Tests...\n"
+    echo -e "\n📋 Running Tests...\n"
     uv run python -m pytest tests/
 else
-    echo -e "\n📋 Running Evaluations...\n"
+    echo -e "\n📋 Running Evaluation...\n"
     uv run python -u eval/runner.py
 fi
 
-# Clean up and exit
-cleanup 
+# Keep container running if in eval mode
+if [[ "$MODE" == "eval" ]]; then
+    # Container will keep running as long as X server is running
+    wait
+fi 

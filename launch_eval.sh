@@ -13,8 +13,8 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo "  (default) - Run evaluation suite"
     echo "  test      - Run pytest suite"
     echo ""
-    echo "The desktop environment is always accessible via web browser at:"
-    echo "http://localhost:6901 (password: password)"
+    echo "The desktop environment is accessible via VNC at:"
+    echo "localhost:5900"
     exit 0
 fi
 
