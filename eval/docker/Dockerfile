@@ -40,17 +40,22 @@ RUN mkdir -p /home/ai/.vnc \
 
 WORKDIR /app
 
+# Create and own venv directory
+RUN mkdir -p /app/.venv && chown -R ai:ai /app/.venv
+
 # Copy dependency files first
 COPY pyproject.toml uv.lock ./
+RUN chown ai:ai pyproject.toml uv.lock
 
-# Install dependencies with dev extras
+# Install UV globally as root
 RUN pip3 install uv
+
+# Switch to ai user for project setup
+USER ai
+
+# Install project dependencies
 RUN uv sync --extra dev
 
-# Fix permissions for app directory
-RUN chown -R ai:ai /app
-
-USER ai
 WORKDIR /home/ai
 
 EXPOSE 5900

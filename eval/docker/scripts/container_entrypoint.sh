@@ -42,7 +42,12 @@ for i in $(seq 1 30); do
 done
 
 set -x  # Re-enable debug for important steps
-# Start dbus
+
+# Start system dbus (requires sudo)
+sudo mkdir -p /var/run/dbus
+sudo dbus-daemon --system --fork
+
+# Start session dbus
 dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork &
 export $(dbus-launch)
 
