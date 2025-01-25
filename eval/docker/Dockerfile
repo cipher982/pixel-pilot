@@ -32,6 +32,11 @@ RUN useradd -m -s /bin/bash ai \
 # Set password for ai user (required for sudo)
 RUN echo 'ai:ai' | chpasswd
 
+# Configure sudo for dbus commands
+RUN echo "ai ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /var/run/dbus" >> /etc/sudoers.d/ai && \
+    echo "ai ALL=(ALL) NOPASSWD: /usr/bin/dbus-daemon" >> /etc/sudoers.d/ai && \
+    chmod 0440 /etc/sudoers.d/ai
+
 # Basic X11 setup
 RUN mkdir -p /home/ai/.vnc \
     && chown -R ai:ai /home/ai/.vnc \

@@ -44,8 +44,8 @@ done
 set -x  # Re-enable debug for important steps
 
 # Start system dbus (requires sudo)
-sudo mkdir -p /var/run/dbus
-sudo dbus-daemon --system --fork
+sudo /usr/bin/mkdir -p /var/run/dbus
+sudo /usr/bin/dbus-daemon --system --fork
 
 # Start session dbus
 dbus-daemon --session --address=unix:path=/tmp/dbus-session --nofork &
