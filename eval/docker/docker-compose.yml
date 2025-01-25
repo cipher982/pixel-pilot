@@ -1,19 +1,19 @@
 services:
-  desktop:
+  eval:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..  # Root of project
+      dockerfile: eval/docker/Dockerfile
     ports:
       - "6901:6901"
     shm_size: 512m
     volumes:
       # Mount code and test files read-only
-      - ../../pixelpilot:/home/ai/pixelpilot/pixelpilot:ro
-      - ../../tests:/home/ai/pixelpilot/tests:ro
-      - ../../eval:/home/ai/pixelpilot/eval:ro
+      - ../../pixelpilot:/app/pixelpilot:ro
+      - ../../tests:/app/tests:ro
+      - ../../eval:/app/eval:ro
       # Mount test cases and artifacts with write access for results
-      - ../../eval/test_cases:/home/ai/pixelpilot/eval/test_cases:ro
-      - ../../eval/artifacts:/home/ai/pixelpilot/eval/artifacts
+      - ../../eval/test_cases:/app/eval/test_cases:ro
+      - ../../eval/artifacts:/app/eval/artifacts
     environment:
       - DISPLAY=:1
       - VNC_PW=ai
@@ -26,4 +26,4 @@ services:
       - KASM_VNC_KEY=/home/ai/.vnc/self.key   # Key path
     env_file:
       - ../../.env
-    command: /home/ai/pixelpilot/eval/docker/scripts/run-eval.sh ${MODE:-eval} 
+    command: /app/eval/docker/scripts/container_entrypoint.sh ${MODE:-eval} 

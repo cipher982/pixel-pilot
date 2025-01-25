@@ -15,7 +15,11 @@ def setup_logger(name: str) -> logging.Logger:
         # Console Handler - Simple format for readability
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(getattr(logging, log_level))
-        console_formatter = logging.Formatter("%(message)s")
+        # console_formatter = logging.Formatter("%(message)s")
+        console_formatter = logging.Formatter(
+            "%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
