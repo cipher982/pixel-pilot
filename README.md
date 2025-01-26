@@ -99,7 +99,8 @@ uv run python -m pixelpilot.main -i "open a new browser tab and navigate to http
 ```
 
 ### Profiles
-In process of deprecating this, try out the 
+*In process of deprecating this, try out the interactive mode for now! (`-i` flag)*
+
 ~~PixelPilot comes with various profiles in the "profiles" directory. A profile describes instructions for specific scenarios, such as:  
 • quiz_debug.yml, training.yml, training_course.yml for quiz and training tasks  
 • aws_login.yml for AWS Single Sign-On flow  
