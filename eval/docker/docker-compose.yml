@@ -16,12 +16,10 @@ services:
       - "5900:5900"
     shm_size: 512m
     volumes:
-      # Mount code and test files read-only
-      - ../../pixelpilot:/app/pixelpilot:ro
-      - ../../tests:/app/tests:ro
-      - ../../eval:/app/eval:ro
-      # Mount test cases and artifacts with write access for results
-      - ../../eval/test_cases:/app/eval/test_cases:ro
+      - ../../pixelpilot:/app/pixelpilot
+      - ../../tests:/app/tests
+      - ../../eval:/app/eval
+      - ../../eval/test_cases:/app/eval/test_cases
       - ../../eval/artifacts:/app/eval/artifacts
     env_file:
       - ../../.env

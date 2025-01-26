@@ -29,7 +29,7 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
                 test_case.task,
             ],
             text=True,
-            check=True,
+            check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
             capture_output=True,  # Capture output for debugging
         )
@@ -37,6 +37,14 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
         print(f"Command output: {result.stdout}")
         if result.stderr:
             print(f"Command errors: {result.stderr}")
+
+        if result.returncode != 0:
+            return EvalResult(
+                test_case=test_case,
+                success=False,
+                actual_result={"error": f"Exit {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"},
+                trajectory=[],
+            )
 
         # Read result from file
         try:

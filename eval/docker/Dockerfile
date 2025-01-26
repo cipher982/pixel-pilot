@@ -68,7 +68,7 @@ RUN mkdir -p /app/.venv && chown -R ai:ai /app/.venv
 # Set up log directory
 RUN mkdir -p /var/log/xfce && chown -R ai:ai /var/log/xfce
 
-# Copy dependency files first
+# Copy dependency files
 COPY pyproject.toml uv.lock ./
 RUN chown ai:ai pyproject.toml uv.lock
 
@@ -81,11 +81,12 @@ USER ai
 # Install project dependencies
 RUN uv sync --extra dev
 
+# Set PYTHONPATH
+ENV PYTHONPATH=/app
+
 WORKDIR /home/ai
 
 EXPOSE 5900
 
-# Use entrypoint script to handle modes
-COPY eval/docker/scripts/container_entrypoint.sh /app/eval/docker/scripts/
 ENTRYPOINT ["/app/eval/docker/scripts/container_entrypoint.sh"]
 CMD ["eval"] 

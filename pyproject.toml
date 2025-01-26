@@ -23,10 +23,15 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "rich>=13.9.4",
     "sounddevice>=0.5.1",
+    "psutil>=6.1.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "python-xlib>=0.33",
+    "huggingface-hub>=0.26.2",
 ]
 
 [project.optional-dependencies]
-deep = [
+local_ai = [
     "accelerate>=1.1.1",
     "einops>=0.8.0",
     "easyocr>=1.7.2",
@@ -42,20 +47,6 @@ deep = [
 ]
 macos = [
     "pyobjc-framework-quartz>=10.3.1",
-]
-eval = [
-    "click>=8.1.7",
-    "rich>=13.9.4",
-    "python-dotenv>=1.0.1",
-    "langchain-community",
-    "langchain-openai>=0.2.6",
-    "openai>=1.54.3",
-    "psutil>=6.1.0",
-]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "python-xlib>=0.33",
 ]
 
 [build-system]
