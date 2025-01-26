@@ -2,110 +2,118 @@
   <img src="assets/logo.webp" width="480" alt="Pixel Pilot Logo">
 </p>
 
-# pixel-pilot
-AI agent for completing computer tasks through a dual-path architecture.
+# PixelPilot
 
-## Project Overview
-Pixel Pilot is an AI-driven system that automates interactions on your computer through a sophisticated dual-path architecture, handling both terminal-based and visual-based workflows. The system can intelligently switch between these modes based on the task requirements.
+PixelPilot is an AI-driven system that integrates both terminal-based actions and GUI-driven (visual) operations to automate computer tasks. Through its dual-path design, it intelligently decides whether to perform terminal commands or visual interactions (mouse, keyboard, window capture, etc.), all while maintaining a shared state for guidance and context. Additionally, PixelPilot incorporates a graph-based workflow engine, dynamic action tools, state management, and flexible profile-driven instructions.
 
-## Key Components
+## Table of Contents
+1. Introduction
+2. Features
+   - Dual-Path Architecture
+   - Graph-based Workflow Engine
+   - Tools and Actions
+   - State Management
+   - Audio Capture (Optional)
+3. Installation
+   - Requirements
+   - Installation
+4. Usage
+   - Running PixelPilot
+   - Profiles
+   - Terminal vs. GUI
 
-1. Dual-Path Architecture:
-   - Terminal Path: Executes command-line operations and processes text-based interactions
-   - Visual Path: Handles GUI interactions through screenshot analysis and mouse/keyboard actions
-   - Smart path switching based on task context
+---
 
-2. Core Systems:
-   - Graph-based Workflow Engine: Manages task execution flow and state transitions
-   - State Management: Unified state tracking across terminal and visual operations
-   - LLM Integration: Supports multiple providers (OpenAI, local models, Bedrock, Fireworks)
-   - Visual Operations: Screenshot capture and analysis for GUI interaction
-   - Terminal Operations: Command execution and output processing
+## 1. Introduction
 
-3. Tools and Utilities:
-   - Mouse and Keyboard Control
-   - Window Capture System
-   - Audio Capture and Transcription (optional)
-   - Terminal Command Execution
-   - Visual Element Detection
+PixelPilot is designed to automate computer interactions in two modes:
+• Terminal-based tasks, such as creating files, listing directory contents, or other shell commands.  
+• Visual (GUI) tasks, such as clicking buttons in a browser, scrolling through pages, and interacting with graphical dialogs.
 
-## Getting Started
+Instead of forcing all tasks through a single approach, PixelPilot picks the most appropriate mode based on the assigned workflow. The system also supports path-specific controllers (e.g., Docker-based GUI, Native GUI) to facilitate running in various environments, including containers or local operating systems.
 
-1. Requirements:
-   - Python >= 3.12
-   - UV package manager (`pip install uv`)
-   - Docker (optional, for evaluation environment)
+---
 
-2. Setup:
-   ```bash
+## 2. Features
+
+### Dual-Path Architecture
+• Terminal Path: Leverages Python’s subprocess or direct shell invocation to run commands, capture output, and manage file operations.  
+• Visual Path: Uses PyAutoGUI, X11, or Docker-based tools (depending on environment) to simulate keyboard/mouse actions, capture screenshots, locate GUI elements, and perform clicks or scroll actions.
+
+### Graph-based Workflow Engine
+• The “graph_system” folder defines a powerful mechanism to define tasks as a directed graph.  
+• Each node in the graph can specify a different stage of the workflow (e.g., “start,” “ask user,” “run command,” “visual confirm,” “end”).  
+• This makes complex tasks easier to structure, evaluate, and debug.
+
+### Tools and Actions
+• Tools are modules (like “KeyboardTool,” “MouseTool,” “TerminalTool”) that encapsulate specific capabilities.  
+• Each tool has methods such as “execute_command” for terminal actions or “click,” “scroll,” etc. for mouse/keyboard interactions.  
+• The “models.py” and “action_types.py” define standardized data structures (Action, ActionResponse) that unify how the system interprets and responds to instructions.  
+
+### State Management
+• The “state_management.py” module holds a “SharedState” TypedDict to maintain a consistent state across path switches.  
+• This shared state tracks the user’s task description, action history, and any relevant context needed for transitions between the terminal path and the visual path.
+
+### Audio Capture (Optional)
+• The “audio_capture.py” file provides optional audio recording functionality using sounddevice. This can be useful for tasks requiring audio context or placeholders for speech input.
+(Not sure if this still works after recent refactor.)
+
+---
+
+## 3. Installation
+
+### Requirements
+• Python 3.12 or above  
+• Additional Python packages (as listed in pyproject.toml) such as pyautogui, openai, opencv-python, etc.  
+• For GUI interaction in Docker-based contexts, an environment configured with X11 or a VNC server is required.  
+• For local usage, ensure you have the necessary system dependencies (e.g. pillow, pyautogui, etc.).
+
+### Installation
+1. Clone this repository:  
+   git clone https://github.com/cipher982/pixel-pilot.git
+
+2. Navigate into the repository folder and install the required dependencies:  
+   pip install uv
    uv sync
-   ```
 
-3. Configuration:
-   - Create a `.env` file with required API keys (e.g., OPENAI_API_KEY)
-   - Optional: Configure task profiles in YAML format
+3. (Optional) If you plan to run Docker-based GUI tasks, see the “eval/docker” directory for Dockerfile and run scripts.
 
-4. Basic Usage:
-   ```bash
-   # Run the agent with a task profile
-   uv run python pixelpilot/main.py --task-profile path/to/task.yaml
+---
 
-   # Run with a simple command
-   uv run python -m pixelpilot.main -i "Open Notepad and type 'Hello, World!'"
-   ```
+## 4. Usage
 
-## Evaluation Environment
+### Running PixelPilot
+Once installed, you can run it like the following examples:
 
-The project includes a comprehensive Docker-based evaluation system that can test both terminal and GUI interactions:
 
-1. Docker Evaluation Setup:
-   ```bash
-   # Build and start the evaluation environment
-   cd eval/docker
-   docker compose up --build
-   ```
+```
+uv run python -m pixelpilot.main -i "whats the free space on my disk?"
+```
 
-2. Features:
-   - Containerized testing environment with X11 support
-   - VNC access for visual debugging (port 5900)
-   - Automated test case execution
-   - Artifact collection and result analysis
+```
+uv run python -m pixelpilot.main -i "create a new directory called 'jokes' (it may already exist, skip if so) add a new txt file with a pun, and then print the size of the file"
+```
 
-3. Running Evaluations:
-   ```bash
-   # Run all test cases
-   ./eval/docker/run-eval.sh
+```
+uv run python -m pixelpilot.main -i "open a new browser tab and navigate to https://www.google.com"
+```
 
-   # Test X11 setup
-   ./eval/docker/test-x11.sh
-   ```
+### Profiles
+In process of deprecating this, try out the 
+~~PixelPilot comes with various profiles in the "profiles" directory. A profile describes instructions for specific scenarios, such as:  
+• quiz_debug.yml, training.yml, training_course.yml for quiz and training tasks  
+• aws_login.yml for AWS Single Sign-On flow  
+• review_scraper.yml, review_browser.yml for scraping product reviews~~
 
-## Task Profiles
-Tasks can be defined in YAML profiles containing:
-- Task instructions
-- Specific configurations for terminal/visual operations
-- Custom workflow parameters
+~~You can reference or load a profile that modifies how the state machine or tools operate. Each profile may contain instructions describing how to navigate a quiz or perform specific tasks.~~
 
-The system will automatically determine whether to start in terminal or visual mode based on the task requirements.
+### Terminal vs. GUI
+Depending on the user’s request, PixelPilot can switch to the “terminal” path or “visual” path. For example:  
+• The “terminal” path might run a command like “mkdir” or “touch test.txt”.  
+• The “visual” path could open your web browser and navigate to a specific page.
 
-## Development and Testing
-
-1. Command Line Options:
-   - `--enable-audio`: Enable audio capture and processing
-   - `--debug`: Run in debug mode with test images
-   - `--task-profile`: Path to task configuration YAML
-   - `--instructions`: Direct task instructions override
-   - `--llm-provider`: Choose LLM provider (openai/local/bedrock/fireworks)
-   - `--label-boxes`: Enable visual debugging of detected elements
-
-2. Docker Development Workflow:
-   - Use the evaluation environment to validate changes
-   - Test both terminal and GUI interactions
-   - Review evaluation artifacts in `eval/artifacts`
-   - Extend test cases in `eval/test_cases`
-
-3. Troubleshooting:
-   - For GUI test issues, connect via VNC to port 5900
-   - Check evaluation logs in the artifacts directory
-   - Verify X11 forwarding with the test script
-
+A typical usage scenario:  
+1. The system’s logic or user’s preference picks a path.  
+2. PixelPilot either runs the command line or uses the GUI control (Docker or Native).  
+3. The shared state is updated based on the outcome.  
+4. If another sub-task requires switching paths, PixelPilot transitions seamlessly.
