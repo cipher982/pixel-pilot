@@ -57,6 +57,11 @@ def test_run_terminal_test(terminal_test_case, mock_successful_result):
         patch("subprocess.run") as mock_run,
         patch("builtins.open", mock_open(read_data=json.dumps(mock_successful_result))),
     ):
+        # Configure mock subprocess return value
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Command output"
+        mock_run.return_value.stderr = ""
+
         result = run_terminal_test(terminal_test_case)
 
         # Verify subprocess was called correctly
@@ -78,6 +83,11 @@ def test_run_gui_test(gui_test_case, mock_successful_result):
         patch("subprocess.run") as mock_run,
         patch("builtins.open", mock_open(read_data=json.dumps(mock_successful_result))),
     ):
+        # Configure mock subprocess return value
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Command output"
+        mock_run.return_value.stderr = ""
+
         result = run_gui_test(gui_test_case)
 
         # Verify subprocess was called with GUI flags
