@@ -63,7 +63,7 @@ def test_screen_capture(controller):
     # Basic sanity check on image data
     assert image.mode == "RGB"
     # Don't check for non-zero content since Xvfb starts with a black screen
-    assert image.size == (1024, 768), "Expected 1024x768 screen"
+    assert image.size == (1280, 720), "Expected 1280x720 screen"
 
     # Verify we can access pixel data
     try:
