@@ -248,7 +248,7 @@ def main():
     for i, test_case in enumerate(test_cases, 1):
         print(f"  {i}. [{test_case.test_type}] {test_case.task}")
 
-    print("\n🧪 Running tests...")
+    print("\n�� Running tests...")
     results = []
 
     for i, test_case in enumerate(test_cases, 1):
