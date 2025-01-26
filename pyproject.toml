@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "rich>=13.9.4",
     "sounddevice>=0.5.1",
+    "transformers>=4.46.2",
     "psutil>=6.1.0",
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -42,7 +43,6 @@ local_ai = [
     "torch>=2.5.1",
     "torchaudio>=2.5.1",
     "torchvision>=0.20.1",
-    "transformers>=4.46.2",
     "ultralytics>=8.3.23",
 ]
 macos = [

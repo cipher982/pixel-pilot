@@ -1615,6 +1615,7 @@ dependencies = [
     { name = "python-xlib" },
     { name = "rich" },
     { name = "sounddevice" },
+    { name = "transformers" },
 ]
 
 [package.optional-dependencies]
@@ -1629,7 +1630,6 @@ local-ai = [
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchvision" },
-    { name = "transformers" },
     { name = "ultralytics", version = "8.3.23", source = { registry = "https://pypi.org/simple" }, marker = "platform_system != 'Darwin' or sys_platform == 'darwin' or python_full_version >= '3.12.4'" },
     { name = "ultralytics", version = "8.3.31", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12.4' and platform_system == 'Darwin' and sys_platform != 'darwin'" },
 ]
@@ -1673,7 +1673,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'local-ai'", specifier = ">=2.5.1" },
     { name = "torchaudio", marker = "extra == 'local-ai'", specifier = ">=2.5.1" },
     { name = "torchvision", marker = "extra == 'local-ai'", specifier = ">=0.20.1" },
-    { name = "transformers", marker = "extra == 'local-ai'", specifier = ">=4.46.2" },
+    { name = "transformers", specifier = ">=4.46.2" },
     { name = "ultralytics", marker = "extra == 'local-ai'", specifier = ">=8.3.23" },
 ]
 

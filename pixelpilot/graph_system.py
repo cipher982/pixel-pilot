@@ -7,9 +7,9 @@ from typing import List
 from typing import Literal
 from typing import Optional
 from typing import Set
-from typing import Union
 from typing import cast
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
@@ -17,8 +17,6 @@ from langgraph.graph import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from pixelpilot.llms.openai_wrapper import OpenAICompatibleChatModel
-from pixelpilot.llms.tgi_wrapper import LocalTGIChatModel
 from pixelpilot.logger import setup_logger
 from pixelpilot.models import ActionResponse
 from pixelpilot.state_management import PathManager
@@ -119,9 +117,11 @@ class DualPathGraph:
     def _get_model_name(self, provider: str) -> str:
         return "gpt-4o" if provider == "openai" else "local-model"
 
-    def _init_decision_llm(self, provider: str) -> Union[OpenAICompatibleChatModel, LocalTGIChatModel]:
+    def _init_decision_llm(self, provider: str) -> BaseChatModel:
         """Initialize LLM for structured decision making."""
         if provider == "local":
+            from pixelpilot.llms.tgi_wrapper import LocalTGIChatModel
+
             llm = LocalTGIChatModel(base_url=DEFAULT_LOCAL_URL)
         else:  # default to openai
             llm = ChatOpenAI(model=DEFAULT_OPENAI_MODEL)
