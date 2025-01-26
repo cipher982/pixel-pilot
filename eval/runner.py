@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import time
 from typing import List
 
 from eval.datasets import EvalCase
@@ -13,7 +14,13 @@ from eval.datasets.manager import DatasetManager
 def run_terminal_test(test_case: EvalCase) -> EvalResult:
     """Run a terminal-based test case."""
     try:
+        print(f"Starting terminal test: {test_case.task}")
+        print(f"Test type: {test_case.test_type}")
+        print(f"Test metadata: {test_case.metadata}")
+
         print(f"Running command in directory: {os.getcwd()}")
+        start_time = time.time()
+
         # Run the command through your agent
         result = subprocess.run(
             [
@@ -32,24 +39,38 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
             capture_output=True,  # Capture output for debugging
+            timeout=300,  # 5 min timeout
         )
 
-        print(f"Command output: {result.stdout}")
+        elapsed = time.time() - start_time
+        print(f"Command completed in {elapsed:.2f}s")
+        print(f"Return code: {result.returncode}")
+        print("Command output:")
+        print(result.stdout)
         if result.stderr:
-            print(f"Command errors: {result.stderr}")
+            print("Command errors:")
+            print(result.stderr)
 
         if result.returncode != 0:
+            print("Command failed with non-zero exit code")
             return EvalResult(
                 test_case=test_case,
                 success=False,
-                actual_result={"error": f"Exit {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"},
+                actual_result={"error": f"Exit {result.returncode}", "stdout": result.stdout, "stderr": result.stderr},
                 trajectory=[],
             )
 
+        # Create artifacts dir with proper permissions
+        print("Creating artifacts directory")
+        os.makedirs("eval/artifacts", exist_ok=True)
+        os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
+
         # Read result from file
         try:
+            print("Reading eval_result.json")
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
+                print(f"Task success: {output['task_result']['success']}")
                 return EvalResult(
                     test_case=test_case,
                     success=output["task_result"]["success"],
@@ -60,8 +81,22 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             print("eval_result.json not found - checking current directory")
             files = os.listdir(".")
             print(f"Current directory contents: {files}")
-            raise
+            return EvalResult(
+                test_case=test_case,
+                success=False,
+                actual_result={"error": "Failed to create eval_result.json"},
+                trajectory=[],
+            )
 
+    except subprocess.TimeoutExpired as e:
+        print(f"Command timed out after {e.timeout} seconds")
+        return EvalResult(
+            test_case=test_case,
+            success=False,
+            actual_result={"error": f"Timeout after {e.timeout}s"},
+            trajectory=[],
+            error=str(e),
+        )
     except Exception as e:
         print(f"Error details: {str(e)}")
         return EvalResult(
@@ -76,7 +111,13 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
 def run_gui_test(test_case: EvalCase) -> EvalResult:
     """Run a GUI-based test case."""
     try:
+        print(f"Starting GUI test: {test_case.task}")
+        print(f"Test type: {test_case.test_type}")
+        print(f"Test metadata: {test_case.metadata}")
+
         print(f"Running command in directory: {os.getcwd()}")
+        start_time = time.time()
+
         # Similar to terminal test but with GUI flags
         result = subprocess.run(
             [
@@ -95,19 +136,41 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
                 json.dumps(test_case.metadata.get("window_info", {})),
             ],
             text=True,
-            check=True,
+            check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
-            capture_output=True,  # Capture output for debugging
+            capture_output=True,
+            timeout=300,  # 5 min timeout
         )
 
-        print(f"Command output: {result.stdout}")
+        elapsed = time.time() - start_time
+        print(f"Command completed in {elapsed:.2f}s")
+        print(f"Return code: {result.returncode}")
+        print("Command output:")
+        print(result.stdout)
         if result.stderr:
-            print(f"Command errors: {result.stderr}")
+            print("Command errors:")
+            print(result.stderr)
 
-        # Read result
+        if result.returncode != 0:
+            print("Command failed with non-zero exit code")
+            return EvalResult(
+                test_case=test_case,
+                success=False,
+                actual_result={"error": f"Exit {result.returncode}", "stdout": result.stdout, "stderr": result.stderr},
+                trajectory=[],
+            )
+
+        # Create artifacts dir with proper permissions
+        print("Creating artifacts directory")
+        os.makedirs("eval/artifacts", exist_ok=True)
+        os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
+
+        # Read result from file
         try:
+            print("Reading eval_result.json")
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
+                print(f"Task success: {output['task_result']['success']}")
                 return EvalResult(
                     test_case=test_case,
                     success=output["task_result"]["success"],
@@ -118,8 +181,22 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             print("eval_result.json not found - checking current directory")
             files = os.listdir(".")
             print(f"Current directory contents: {files}")
-            raise
+            return EvalResult(
+                test_case=test_case,
+                success=False,
+                actual_result={"error": "Failed to create eval_result.json"},
+                trajectory=[],
+            )
 
+    except subprocess.TimeoutExpired as e:
+        print(f"Command timed out after {e.timeout} seconds")
+        return EvalResult(
+            test_case=test_case,
+            success=False,
+            actual_result={"error": f"Timeout after {e.timeout}s"},
+            trajectory=[],
+            error=str(e),
+        )
     except Exception as e:
         print(f"Error details: {str(e)}")
         return EvalResult(

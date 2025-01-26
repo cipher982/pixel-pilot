@@ -3,8 +3,25 @@
 # Exit on any error
 set -e
 
+# Source environment variables from .env file
+if [ -f .env ]; then
+    set -a  # automatically export all variables
+    source .env
+    set +a
+fi
+
 MODE="eval"  # Default to eval mode
 VNC_WAIT=false   # Default to not waiting for VNC
+
+# Check for required environment variables
+if [ -z "$USER_NAME" ] || [ -z "$USER_HOME" ] || [ -z "$PROJECT_NAME" ]; then
+    echo "Error: Required environment variables not set"
+    echo "Please ensure these are set:"
+    echo "  USER_NAME   (current: ${USER_NAME:-not set})"
+    echo "  USER_HOME   (current: ${USER_HOME:-not set})"
+    echo "  PROJECT_NAME (current: ${PROJECT_NAME:-not set})"
+    exit 1
+fi
 
 # Help message
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
@@ -42,12 +59,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Building container..."
-docker compose -f eval/docker/docker-compose.yml build
+docker compose --env-file .env -f eval/docker/docker-compose.yml build
 
 echo "Starting container in $MODE mode (VNC wait: $VNC_WAIT)..."
 export MODE=$MODE
 export VNC_WAIT=$VNC_WAIT
-docker compose -f eval/docker/docker-compose.yml up \
+docker compose --env-file .env -f eval/docker/docker-compose.yml up \
     eval
 
 echo "Done!" 

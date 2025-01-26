@@ -31,23 +31,28 @@ RUN mkdir -p /run/dbus \
     && mkdir -p /run/user/1000 \
     && chmod 700 /run/user/1000
 
+# Declare build arguments
+ARG USER_NAME
+ARG USER_HOME
+ARG PROJECT_NAME
+
 # Create user and add to groups
-RUN useradd -m -s /bin/bash ai \
-    && adduser ai sudo \
-    && adduser ai ssl-cert \
-    && adduser ai video \
-    && adduser ai tty
+RUN useradd -m -s /bin/bash $USER_NAME \
+    && adduser $USER_NAME sudo \
+    && adduser $USER_NAME ssl-cert \
+    && adduser $USER_NAME video \
+    && adduser $USER_NAME tty
 
 # Set ownership of runtime directory
-RUN chown ai:ai /run/user/1000
+RUN chown $USER_NAME:$USER_NAME /run/user/1000
 
-# Set password for ai user (required for sudo)
-RUN echo 'ai:ai' | chpasswd
+# Set password for user (required for sudo)
+RUN echo "$USER_NAME:$USER_NAME" | chpasswd
 
 # Configure sudo for dbus commands
-RUN echo "ai ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /var/run/dbus" >> /etc/sudoers.d/ai && \
-    echo "ai ALL=(ALL) NOPASSWD: /usr/bin/dbus-daemon" >> /etc/sudoers.d/ai && \
-    chmod 0440 /etc/sudoers.d/ai
+RUN echo "$USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /var/run/dbus" >> /etc/sudoers.d/$USER_NAME && \
+    echo "$USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/dbus-daemon" >> /etc/sudoers.d/$USER_NAME && \
+    chmod 0440 /etc/sudoers.d/$USER_NAME
 
 # Set up X11 socket directory
 RUN mkdir -p /tmp/.X11-unix && \
@@ -55,38 +60,38 @@ RUN mkdir -p /tmp/.X11-unix && \
     chown root:root /tmp/.X11-unix
 
 # Basic X11 setup
-RUN mkdir -p /home/ai/.vnc \
-    && chown -R ai:ai /home/ai/.vnc \
-    && touch /home/ai/.Xauthority \
-    && chown ai:ai /home/ai/.Xauthority
-
-WORKDIR /app
-
-# Create and own venv directory
-RUN mkdir -p /app/.venv && chown -R ai:ai /app/.venv
+RUN mkdir -p $USER_HOME/.vnc \
+    && chown -R $USER_NAME:$USER_NAME $USER_HOME/.vnc \
+    && touch $USER_HOME/.Xauthority \
+    && chown $USER_NAME:$USER_NAME $USER_HOME/.Xauthority
 
 # Set up log directory
-RUN mkdir -p /var/log/xfce && chown -R ai:ai /var/log/xfce
-
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
-RUN chown ai:ai pyproject.toml uv.lock
+RUN mkdir -p /var/log/xfce && chown -R $USER_NAME:$USER_NAME /var/log/xfce
 
 # Install UV globally as root
 RUN pip3 install uv
 
-# Switch to ai user for project setup
-USER ai
+# Switch to user for remaining operations
+USER $USER_NAME
+WORKDIR $USER_HOME
+
+# Create project directory
+RUN mkdir -p $USER_HOME/$PROJECT_NAME
+
+# Copy project files (will be mounted in docker-compose)
+COPY --chown=$USER_NAME:$USER_NAME pyproject.toml uv.lock $USER_HOME/$PROJECT_NAME/
 
 # Install project dependencies
+WORKDIR $USER_HOME/$PROJECT_NAME
 RUN uv sync --extra dev
 
-# Set PYTHONPATH
-ENV PYTHONPATH=/app
+# Set PYTHONPATH to include project
+ENV PYTHONPATH=$USER_HOME/$PROJECT_NAME
 
-WORKDIR /home/ai
+# Return to home directory as final workspace
+WORKDIR $USER_HOME
 
 EXPOSE 5900
 
-ENTRYPOINT ["/app/eval/docker/scripts/container_entrypoint.sh"]
+ENTRYPOINT ["./pixel-pilot/eval/docker/scripts/container_entrypoint.sh"]
 CMD ["eval"] 

@@ -1,29 +1,34 @@
-version: '3'
-
 services:
   eval:
     build:
-      context: ../..  # Root of project
+      context: ../.. # project root for stuff we need, like .env
       dockerfile: eval/docker/Dockerfile
+      args:
+        USER_NAME: ${USER_NAME}
+        USER_HOME: ${USER_HOME}
+        PROJECT_NAME: ${PROJECT_NAME}
     container_name: docker-eval-1
     environment:
       - MODE=${MODE:-eval}  # Default to eval mode
       - VNC_WAIT=${VNC_WAIT:-false}
       - PYTEST_ADDOPTS="--color=yes"  # Force colored output for tests
+      - USER_NAME=${USER_NAME}
+      - USER_HOME=${USER_HOME}
+      - PROJECT_NAME=${PROJECT_NAME}
     stdin_open: true  # docker run -i
     tty: true        # docker run -t
     ports:
       - "5900:5900"
     shm_size: 512m
     volumes:
-      - ../../pixelpilot:/app/pixelpilot
-      - ../../tests:/app/tests
-      - ../../eval:/app/eval
-      - ../../eval/test_cases:/app/eval/test_cases
-      - ../../eval/artifacts:/app/eval/artifacts
+      - ../../pixelpilot:/home/ai/pixel-pilot/pixelpilot
+      - ../../tests:/home/ai/pixel-pilot/tests
+      - ../../eval:/home/ai/pixel-pilot/eval
+      - ../../eval/test_cases:/home/ai/pixel-pilot/eval/test_cases
+      - ../../eval/artifacts:/home/ai/pixel-pilot/eval/artifacts
     env_file:
       - ../../.env
     # Use entrypoint from Dockerfile
-    entrypoint: ["/app/eval/docker/scripts/container_entrypoint.sh"]
+    entrypoint: ["/home/ai/pixel-pilot/eval/docker/scripts/container_entrypoint.sh"]
     # Default command is the mode
     command: ["${MODE:-eval}"] 

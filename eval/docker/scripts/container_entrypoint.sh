@@ -85,7 +85,7 @@ x11vnc -display :1 -nopw -forever -shared -quiet > /var/log/xfce/vnc.log 2>&1 &
 VNC_PID=$!
 
 # Change to project directory
-cd /app
+cd "${USER_HOME}/${PROJECT_NAME}"
 echo "Working directory: $(pwd)"
 
 # If VNC_WAIT is true, wait for user to connect before proceeding
@@ -101,8 +101,8 @@ if [[ "$VNC_WAIT" == "true" ]]; then
     rm -f "$TRIGGER_FILE"
     
     # Create desktop launcher
-    mkdir -p /home/ai/Desktop
-    cat > /home/ai/Desktop/start_tests.desktop << EOF
+    mkdir -p "${USER_HOME}/Desktop"
+    cat > "${USER_HOME}/Desktop/start_tests.desktop" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -113,8 +113,8 @@ Icon=system-run
 Terminal=false
 Categories=Utility;
 EOF
-    chown ai:ai /home/ai/Desktop/start_tests.desktop
-    chmod 755 /home/ai/Desktop/start_tests.desktop
+    chown ${USER_NAME}:${USER_NAME} "${USER_HOME}/Desktop/start_tests.desktop"
+    chmod 755 "${USER_HOME}/Desktop/start_tests.desktop"
     
     # Wait for trigger file
     while [ ! -f "$TRIGGER_FILE" ]; do
