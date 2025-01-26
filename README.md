@@ -91,7 +91,7 @@ uv run python -m pixelpilot.main -i "whats the free space on my disk?"
 ```
 
 ```
-uv run python -m pixelpilot.main -i "create a new directory called 'jokes' (it may already exist, skip if so) add a new txt file with a pun, and then print the size of the file"
+uv run python -m pixelpilot.main -i "create a new directory called 'jokes' with a new file in it, add a pun to the file, and then print the size of the file"
 ```
 
 ```
