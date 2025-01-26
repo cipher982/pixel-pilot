@@ -65,6 +65,9 @@ WORKDIR /app
 # Create and own venv directory
 RUN mkdir -p /app/.venv && chown -R ai:ai /app/.venv
 
+# Set up log directory
+RUN mkdir -p /var/log/xfce && chown -R ai:ai /var/log/xfce
+
 # Copy dependency files first
 COPY pyproject.toml uv.lock ./
 RUN chown ai:ai pyproject.toml uv.lock

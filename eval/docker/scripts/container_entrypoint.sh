@@ -61,7 +61,8 @@ echo "  Session dbus started"
 
 # Start XFCE session
 echo "Starting XFCE session..."
-startxfce4 &
+mkdir -p /var/log/xfce
+startxfce4 > /var/log/xfce/xfce4.log 2>&1 &
 XFCE_PID=$!
 
 # Wait for XFCE to be fully ready
@@ -69,11 +70,18 @@ echo "Waiting for XFCE..."
 while ! pgrep -f "xfce4-session" > /dev/null; do
     sleep 1
 done
-echo "XFCE session detected"
+echo "XFCE session ready"
+
+# Wait for XFCE panel to be ready
+echo "Waiting for XFCE panel..."
+while ! xwininfo -root -tree 2>/dev/null | grep -q "xfce4-panel"; do
+    sleep 1
+done
+echo "XFCE panel detected"
 
 # Start VNC server
 echo "Starting VNC server..."
-x11vnc -display :1 -nopw -forever -shared -quiet >/dev/null 2>&1 &
+x11vnc -display :1 -nopw -forever -shared -quiet > /var/log/xfce/vnc.log 2>&1 &
 VNC_PID=$!
 
 # Change to project directory
@@ -82,20 +90,37 @@ echo "Working directory: $(pwd)"
 
 # If VNC_WAIT is true, wait for user to connect before proceeding
 if [[ "$VNC_WAIT" == "true" ]]; then
-    # Make sure output is flushed
-    exec 1>&1
-    
-    # Clear any pending input
-    while read -t 0; do read; done
-    
-    echo -e "\n⏸️  PAUSED FOR VNC CONNECTION"
+    echo -e "\n⏸️  Waiting for user confirmation..."
     echo "----------------------------------------"
     echo "VNC server is ready on port 5900"
-    echo "XFCE session is running (auto-login enabled)"
-    echo "Press Enter when ready to start tests"
+    echo "Connect with VNC viewer and click 'Start Tests' icon on the desktop"
     echo "----------------------------------------"
     
-    read -p "> " -r
+    # Create trigger file
+    TRIGGER_FILE="/tmp/start_tests"
+    rm -f "$TRIGGER_FILE"
+    
+    # Create desktop launcher
+    mkdir -p /home/ai/Desktop
+    cat > /home/ai/Desktop/start_tests.desktop << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Start Tests
+Comment=Click to start PixelPilot tests
+Exec=touch /tmp/start_tests
+Icon=system-run
+Terminal=false
+Categories=Utility;
+EOF
+    chown ai:ai /home/ai/Desktop/start_tests.desktop
+    chmod 755 /home/ai/Desktop/start_tests.desktop
+    
+    # Wait for trigger file
+    while [ ! -f "$TRIGGER_FILE" ]; do
+        sleep 1
+    done
+        
     echo "Starting tests..."
 fi
 
