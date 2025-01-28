@@ -15,6 +15,7 @@ from eval.datasets import EvalCase
 from eval.datasets import EvalResult
 from eval.datasets.manager import DatasetManager
 from eval.verification import VerificationEngine
+from pixelpilot.graph_system import DualPathGraph
 from pixelpilot.system_control import SystemController
 from pixelpilot.system_control_factory import SystemControllerFactory
 
@@ -44,63 +45,38 @@ def run_terminal_test(
         print(f"Test type: {test_case.test_type}")
         print(f"Test metadata: {test_case.metadata}")
 
-        print(f"Running command in directory: {os.getcwd()}")
         start_time = time.time()
 
-        # Run the command through your agent
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "python",
-                "-u",  # Unbuffered output
-                "-m",
-                "pixelpilot.main",
-                "--output-format",
-                "json",
-                "--instructions",
-                test_case.task,
-            ]
-            + (["--mode", mode] if mode else []),  # Add mode if specified
-            text=True,
-            check=False,  # Don't raise on non-zero exit
-            env=os.environ.copy(),
-            capture_output=True,  # Capture output for debugging
-            timeout=300,  # 5 min timeout
+        # Initialize and run the dual-path system
+        graph_system = DualPathGraph(
+            window_info=None,  # No window info needed for terminal
+            start_terminal=True,  # Always start in terminal for terminal tests
+            llm_provider="openai",
+            controller_mode=mode,
         )
 
-        elapsed = time.time() - start_time
-        print(f"Command completed in {elapsed:.2f}s")
-        print(f"Return code: {result.returncode}")
-        print("Command output:")
-        print(result.stdout)
-        if result.stderr:
-            print("Command errors:")
-            print(result.stderr)
-
-        if result.returncode != 0:
-            print("Command failed with non-zero exit code")
-            return EvalResult(
-                test_case=test_case,
-                success=False,
-                verification_results=[],
-                actions=[],
-                error=f"Exit {result.returncode}",
-            )
-
-        # Create artifacts dir with proper permissions
-        print("Creating artifacts directory")
-        os.makedirs("eval/artifacts", exist_ok=True)
-        os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
-
-        # Read result and verify
         try:
-            print("Reading eval_result.json")
-            with open("eval/artifacts/eval_result.json") as f:
-                output = json.load(f)
+            # Run the task
+            result = graph_system.run(task_description=test_case.task)
+            elapsed = time.time() - start_time
+            print(f"Task completed in {elapsed:.2f}s")
 
-            # Collect state for verification
-            state = collect_state(output, result, controller=controller)
+            # Create artifacts dir with proper permissions
+            print("Creating artifacts directory")
+            os.makedirs("eval/artifacts", exist_ok=True)
+            os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
+
+            # Get state for verification
+            state = {
+                "terminal": {
+                    "output": result.get("result", ""),
+                    "error": result.get("error", ""),
+                    "return_code": 0 if result.get("status") == "completed" else 1,
+                },
+                "files": {},  # Will be populated by verifier
+                "screen_state": {},
+                "controller": controller,
+            }
 
             # Run verifications
             engine = VerificationEngine()
@@ -111,30 +87,12 @@ def run_terminal_test(
                 test_case=test_case,
                 success=success,
                 verification_results=verification_results,
-                actions=output.get("actions", []),
+                actions=result.get("actions", []),
             )
 
-        except FileNotFoundError:
-            print("eval_result.json not found - checking current directory")
-            files = os.listdir(".")
-            print(f"Current directory contents: {files}")
-            return EvalResult(
-                test_case=test_case,
-                success=False,
-                verification_results=[],
-                actions=[],
-                error="Failed to create eval_result.json",
-            )
+        finally:
+            graph_system.cleanup()
 
-    except subprocess.TimeoutExpired as e:
-        print(f"Command timed out after {e.timeout} seconds")
-        return EvalResult(
-            test_case=test_case,
-            success=False,
-            verification_results=[],
-            actions=[],
-            error=f"Timeout after {e.timeout}s",
-        )
     except Exception as e:
         print(f"Error details: {str(e)}")
         return EvalResult(
