@@ -29,6 +29,8 @@ dependencies = [
     "pytest-cov>=4.1.0",
     "python-xlib>=0.33",
     "huggingface-hub>=0.26.2",
+    "ipykernel>=6.29.5",
+    "scrapybara>=2.2.1",
 ]
 
 [project.optional-dependencies]
