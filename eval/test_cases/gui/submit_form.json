@@ -1,0 +1,35 @@
+{
+    "task": "submit the quiz form",
+    "verification_rules": [
+        {
+            "type": "visual_element",
+            "condition": {
+                "text_contains": ["Quiz Submitted", "Thank you"]
+            },
+            "description": "Success message should be visible",
+            "required": true
+        },
+        {
+            "type": "visual_element",
+            "condition": {
+                "element_id": "quiz-form",
+                "element_visible": false
+            },
+            "description": "Quiz form should no longer be visible",
+            "required": false
+        }
+    ],
+    "test_type": "gui",
+    "metadata": {
+        "description": "Tests form submission via GUI",
+        "category": "gui_interactions",
+        "window_info": {
+            "title": "Quiz Application",
+            "element": {
+                "id": "submit-button",
+                "type": "button",
+                "text": "Submit"
+            }
+        }
+    }
+} 

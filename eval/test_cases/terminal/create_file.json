@@ -1,18 +1,16 @@
 {
     "task": "create a file called test.txt",
-    "expected_result": {
-        "success": true,
-        "files": {
-            "test.txt": {
-                "exists": true
-            }
+    "verification_rules": [
+        {
+            "type": "file_exists",
+            "condition": {
+                "path": "test.txt"
+            },
+            "description": "File test.txt should exist",
+            "required": true
         }
-    },
-    "test_type": "terminal",
-    "expected_trajectory": [
-        "check_path",
-        "create_file"
     ],
+    "test_type": "terminal",
     "metadata": {
         "description": "Basic file creation test",
         "category": "file_operations"

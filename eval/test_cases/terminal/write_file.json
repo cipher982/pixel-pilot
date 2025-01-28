@@ -1,0 +1,27 @@
+{
+    "task": "create a file called hello.txt containing the text 'Hello, World!'",
+    "verification_rules": [
+        {
+            "type": "file_exists",
+            "condition": {
+                "path": "hello.txt"
+            },
+            "description": "File hello.txt should exist",
+            "required": true
+        },
+        {
+            "type": "file_content",
+            "condition": {
+                "path": "hello.txt",
+                "matches": "Hello, World!"
+            },
+            "description": "File should contain exactly 'Hello, World!'",
+            "required": true
+        }
+    ],
+    "test_type": "terminal",
+    "metadata": {
+        "description": "File creation with specific content",
+        "category": "file_operations"
+    }
+} 

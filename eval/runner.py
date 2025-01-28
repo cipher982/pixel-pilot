@@ -4,11 +4,23 @@ import json
 import os
 import subprocess
 import time
+from typing import Dict
 from typing import List
 
 from eval.datasets import EvalCase
 from eval.datasets import EvalResult
 from eval.datasets.manager import DatasetManager
+from eval.verification import VerificationEngine
+
+
+def collect_state(output: Dict, result: subprocess.CompletedProcess) -> Dict:
+    """Collect state information from test execution."""
+    state = {
+        "terminal": {"output": result.stdout, "error": result.stderr, "return_code": result.returncode},
+        "files": {},  # Will be populated by verifier
+        "screen_state": output.get("screen_state", {}),  # For GUI tests
+    }
+    return state
 
 
 def run_terminal_test(test_case: EvalCase) -> EvalResult:
@@ -56,8 +68,9 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             return EvalResult(
                 test_case=test_case,
                 success=False,
-                actual_result={"error": f"Exit {result.returncode}", "stdout": result.stdout, "stderr": result.stderr},
-                trajectory=[],
+                verification_results=[],
+                actions=[],
+                error=f"Exit {result.returncode}",
             )
 
         # Create artifacts dir with proper permissions
@@ -65,18 +78,27 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
         os.makedirs("eval/artifacts", exist_ok=True)
         os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
 
-        # Read result from file
+        # Read result and verify
         try:
             print("Reading eval_result.json")
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
-                print(f"Task success: {output['task_result']['success']}")
-                return EvalResult(
-                    test_case=test_case,
-                    success=output["task_result"]["success"],
-                    actual_result=output["task_result"],
-                    trajectory=output.get("trajectory", []),
-                )
+
+            # Collect state for verification
+            state = collect_state(output, result)
+
+            # Run verifications
+            engine = VerificationEngine()
+            success, verification_results = engine.verify_all(test_case.verification_rules, state)
+
+            # Create result with verification details
+            return EvalResult(
+                test_case=test_case,
+                success=success,
+                verification_results=verification_results,
+                actions=output.get("actions", []),
+            )
+
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
             files = os.listdir(".")
@@ -84,28 +106,19 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             return EvalResult(
                 test_case=test_case,
                 success=False,
-                actual_result={"error": "Failed to create eval_result.json"},
-                trajectory=[],
+                verification_results=[],
+                actions=[],
+                error="Failed to create eval_result.json",
             )
 
     except subprocess.TimeoutExpired as e:
         print(f"Command timed out after {e.timeout} seconds")
         return EvalResult(
-            test_case=test_case,
-            success=False,
-            actual_result={"error": f"Timeout after {e.timeout}s"},
-            trajectory=[],
-            error=str(e),
+            test_case=test_case, success=False, verification_results=[], actions=[], error=f"Timeout after {e.timeout}s"
         )
     except Exception as e:
         print(f"Error details: {str(e)}")
-        return EvalResult(
-            test_case=test_case,
-            success=False,
-            actual_result={"error": str(e)},
-            trajectory=[],
-            error=str(e),
-        )
+        return EvalResult(test_case=test_case, success=False, verification_results=[], actions=[], error=str(e))
 
 
 def run_gui_test(test_case: EvalCase) -> EvalResult:
@@ -156,8 +169,9 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             return EvalResult(
                 test_case=test_case,
                 success=False,
-                actual_result={"error": f"Exit {result.returncode}", "stdout": result.stdout, "stderr": result.stderr},
-                trajectory=[],
+                verification_results=[],
+                actions=[],
+                error=f"Exit {result.returncode}",
             )
 
         # Create artifacts dir with proper permissions
@@ -165,18 +179,27 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
         os.makedirs("eval/artifacts", exist_ok=True)
         os.chmod("eval/artifacts", 0o777)  # Ensure writable by all users
 
-        # Read result from file
+        # Read result and verify
         try:
             print("Reading eval_result.json")
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
-                print(f"Task success: {output['task_result']['success']}")
-                return EvalResult(
-                    test_case=test_case,
-                    success=output["task_result"]["success"],
-                    actual_result=output["task_result"],
-                    trajectory=output.get("trajectory", []),
-                )
+
+            # Collect state for verification
+            state = collect_state(output, result)
+
+            # Run verifications
+            engine = VerificationEngine()
+            success, verification_results = engine.verify_all(test_case.verification_rules, state)
+
+            # Create result with verification details
+            return EvalResult(
+                test_case=test_case,
+                success=success,
+                verification_results=verification_results,
+                actions=output.get("actions", []),
+            )
+
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
             files = os.listdir(".")
@@ -184,28 +207,19 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             return EvalResult(
                 test_case=test_case,
                 success=False,
-                actual_result={"error": "Failed to create eval_result.json"},
-                trajectory=[],
+                verification_results=[],
+                actions=[],
+                error="Failed to create eval_result.json",
             )
 
     except subprocess.TimeoutExpired as e:
         print(f"Command timed out after {e.timeout} seconds")
         return EvalResult(
-            test_case=test_case,
-            success=False,
-            actual_result={"error": f"Timeout after {e.timeout}s"},
-            trajectory=[],
-            error=str(e),
+            test_case=test_case, success=False, verification_results=[], actions=[], error=f"Timeout after {e.timeout}s"
         )
     except Exception as e:
         print(f"Error details: {str(e)}")
-        return EvalResult(
-            test_case=test_case,
-            success=False,
-            actual_result={"error": str(e)},
-            trajectory=[],
-            error=str(e),
-        )
+        return EvalResult(test_case=test_case, success=False, verification_results=[], actions=[], error=str(e))
 
 
 def run_eval(test_case: EvalCase) -> EvalResult:
@@ -248,14 +262,21 @@ def main():
     for i, test_case in enumerate(test_cases, 1):
         print(f"  {i}. [{test_case.test_type}] {test_case.task}")
 
-    print("\n�� Running tests...")
+    print("\nRunning tests...")
     results = []
 
     for i, test_case in enumerate(test_cases, 1):
         print(f"\n▶️  Test case {i}/{len(test_cases)}: {test_case.task}")
         result = run_eval(test_case)
         results.append(result)
-        print(f"{'✅' if result.success else '❌'} Result: {result.actual_result}")
+
+        # Display result summary
+        verification_summary = [f"{'✓' if v.passed else '✗'} {v.rule.description}" for v in result.verification_results]
+        print(f"{'✅' if result.success else '❌'} Result:")
+        if verification_summary:
+            print("\n".join(f"  {line}" for line in verification_summary))
+        if result.error:
+            print(f"  Error: {result.error}")
 
     save_results(results)
     print("\n📊 Results Summary:")
