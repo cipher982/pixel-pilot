@@ -75,10 +75,10 @@ def run_terminal_test(
                 },
                 "files": {},  # Will be populated by verifier
                 "screen_state": {},
-                "controller": controller,
+                "controller": graph_system.controller,  # Use the controller from graph system
             }
 
-            # Run verifications
+            # Run verifications before cleanup
             engine = VerificationEngine()
             success, verification_results = engine.verify_all(test_case.verification_rules, state)
 

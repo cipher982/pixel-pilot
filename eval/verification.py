@@ -54,22 +54,20 @@ class FileVerifier(Verifier):
             return VerificationResult(rule=rule, passed=False, details={"error": "No path specified in condition"})
 
         try:
-            # Check if file exists using ls command
-            result = controller.run_command(f"ls {path}")
-            exists = result.success
+            # Check if file exists using controller method
+            exists = controller.file_exists(path)
 
             if not exists:
                 return VerificationResult(rule=rule, passed=False, details={"error": f"File not found: {path}"})
 
             # If we need to check content
             if "content" in rule.condition or "matches" in rule.condition:
-                result = controller.run_command(f"cat {path}")
-                if not result.success:
+                content = controller.read_file(path)
+                if not content:
                     return VerificationResult(
-                        rule=rule, passed=False, details={"error": f"Failed to read file: {result.message}"}
+                        rule=rule, passed=False, details={"error": f"Failed to read file or file is empty: {path}"}
                     )
 
-                content = result.message
                 expected = rule.condition.get("content") or rule.condition.get("matches")
                 passed = expected in content
                 return VerificationResult(rule=rule, passed=passed, details={"matches": passed, "path": path})
