@@ -10,24 +10,7 @@ from typing import Optional
 
 from eval.verification import VerificationResult
 
-
-@dataclass
-class VerificationRule:
-    """A rule for verifying a specific outcome"""
-
-    type: Literal["file_exists", "file_content", "visual_element", "terminal_output"]
-    condition: Dict[str, Any]  # Specific conditions for this rule type
-    description: str  # Human readable description of what we're verifying
-    required: bool = True  # Whether this rule must pass for task success
-
-    def to_json(self) -> Dict:
-        """Convert to JSON dictionary."""
-        return {
-            "type": self.type,
-            "condition": self.condition,
-            "description": self.description,
-            "required": self.required,
-        }
+from .types import VerificationRule
 
 
 @dataclass

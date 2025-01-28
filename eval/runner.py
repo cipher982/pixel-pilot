@@ -6,19 +6,26 @@ import subprocess
 import time
 from typing import Dict
 from typing import List
+from typing import Optional
+
+from PIL import Image
 
 from eval.datasets import EvalCase
 from eval.datasets import EvalResult
 from eval.datasets.manager import DatasetManager
 from eval.verification import VerificationEngine
+from pixelpilot.gui_control_docker import DockerGUIController
+from pixelpilot.gui_control_native import NativeGUIController
 
 
-def collect_state(output: Dict, result: subprocess.CompletedProcess) -> Dict:
+def collect_state(
+    output: Dict, result: subprocess.CompletedProcess, final_screenshot: Optional[Image.Image] = None
+) -> Dict:
     """Collect state information from test execution."""
     state = {
         "terminal": {"output": result.stdout, "error": result.stderr, "return_code": result.returncode},
         "files": {},  # Will be populated by verifier
-        "screen_state": output.get("screen_state", {}),  # For GUI tests
+        "screen_state": {**output.get("screen_state", {}), "final_screenshot": final_screenshot},
     }
     return state
 
@@ -185,8 +192,25 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
+            # Take final screenshot
+            print("Capturing final screenshot")
+            # Use appropriate controller based on environment
+            controller = DockerGUIController() if os.path.exists("/.dockerenv") else NativeGUIController()
+            try:
+                screenshot, capture_result = controller.capture_screen()
+                if not capture_result.success:
+                    print(f"Screenshot capture failed: {capture_result.message}")
+                    screenshot = None
+                elif screenshot is not None:  # Only save if we have a screenshot
+                    # Save screenshot to artifacts
+                    screenshot_path = "eval/artifacts/final_screenshot.png"
+                    screenshot.save(screenshot_path)
+                    print(f"Screenshot saved to {screenshot_path}")
+            finally:
+                controller.cleanup()
+
             # Collect state for verification
-            state = collect_state(output, result)
+            state = collect_state(output, result, screenshot)
 
             # Run verifications
             engine = VerificationEngine()

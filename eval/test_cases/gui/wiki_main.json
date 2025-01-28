@@ -1,0 +1,21 @@
+{
+    "task": "Navigate to Wikipedia's main page",
+    "verification_rules": [
+        {
+            "type": "vision",
+            "condition": {
+                "description": "The browser should show Wikipedia's main page. The Wikipedia logo should be visible at the top, and there should be a search bar in the center. The URL in the browser's address bar should be wikipedia.org"
+            },
+            "description": "Browser shows Wikipedia main page",
+            "required": true
+        }
+    ],
+    "test_type": "gui",
+    "metadata": {
+        "description": "Basic browser navigation test",
+        "category": "web_navigation",
+        "start_url": "https://www.wikipedia.org",
+        "requires_vision": true,
+        "save_screenshot": true
+    }
+} 
