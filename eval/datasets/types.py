@@ -13,3 +13,12 @@ class VerificationRule:
     description: str
     condition: Dict[str, Any]
     required: bool = True
+
+    def to_json(self) -> Dict[str, Any]:
+        """Convert to JSON dictionary."""
+        return {
+            "type": self.type,
+            "condition": self.condition,
+            "description": self.description,
+            "required": self.required,
+        }
