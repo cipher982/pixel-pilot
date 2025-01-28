@@ -31,6 +31,11 @@ load_dotenv()
 )
 @click.option("--gui-mode", is_flag=True, help="Enable GUI automation mode")
 @click.option("--window-info", help="JSON string with window information for GUI tests")
+@click.option(
+    "--mode",
+    type=click.Choice(["native", "docker", "scrapybara"]),
+    help="Controller mode for system operations",
+)
 def main(
     enable_audio: bool = False,
     debug: bool = False,
@@ -41,6 +46,7 @@ def main(
     output_format: str = "pretty",
     gui_mode: bool = False,
     window_info: Optional[str] = None,
+    mode: Optional[str] = None,
 ):
     """Main entry point for Pixel Pilot."""
     # Load task profile if provided
@@ -68,21 +74,30 @@ def main(
 
     # Initialize and run the dual-path system
     try:
-        graph_system = DualPathGraph(window_info=window_info, start_terminal=is_terminal)
-        # Add task instructions to state
-        graph_system.path_manager.update_state({"task_description": task_instructions})
-        result = graph_system.run(task_description=task_instructions)
+        graph_system = DualPathGraph(
+            window_info=window_info,
+            start_terminal=is_terminal,
+            llm_provider=llm_provider,
+            controller_mode=mode,
+        )
+        try:
+            # Add task instructions to state
+            graph_system.path_manager.update_state({"task_description": task_instructions})
+            result = graph_system.run(task_description=task_instructions)
 
-        # Create and display task result
-        state = {
-            "command_history": graph_system.path_manager.state.get("command_history", []),
-            "action_history": graph_system.path_manager.state.get("action_history", []),
-            "context": result.get("context", {}),  # Use context from result
-            "status": result.get("status"),
-            "summary": result.get("summary"),
-        }
-        task_result = create_task_result(state=state, task_description=task_instructions)
-        display_result(task_result, output_format=output_format)
+            # Create and display task result
+            state = {
+                "command_history": graph_system.path_manager.state.get("command_history", []),
+                "action_history": graph_system.path_manager.state.get("action_history", []),
+                "context": result.get("context", {}),  # Use context from result
+                "status": result.get("status"),
+                "summary": result.get("summary"),
+            }
+            task_result = create_task_result(state=state, task_description=task_instructions)
+            display_result(task_result, output_format=output_format)
+        finally:
+            # Ensure controller is cleaned up
+            graph_system.cleanup()
 
     except KeyboardInterrupt:
         logger.info("Operation interrupted by user")

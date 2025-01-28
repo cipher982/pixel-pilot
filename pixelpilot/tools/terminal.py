@@ -1,14 +1,27 @@
 """Terminal interaction tool."""
 
+from typing import Optional
+
 from pixelpilot.logger import setup_logger
 from pixelpilot.models import Action
 from pixelpilot.state_management import SharedState
+from pixelpilot.system_control import SystemController
+from pixelpilot.system_control_factory import SystemControllerFactory
 
 logger = setup_logger(__name__)
 
 
 class TerminalTool:
     """Tool for executing terminal commands."""
+
+    def __init__(self, controller: Optional[SystemController] = None):
+        """Initialize terminal tool with optional controller.
+
+        Args:
+            controller: SystemController to use for command execution.
+                      If None, a native controller will be created.
+        """
+        self.controller = controller or SystemControllerFactory.create(mode="native")
 
     def execute_command(self, state: SharedState) -> SharedState:
         """Execute a terminal command."""
@@ -26,20 +39,24 @@ class TerminalTool:
             logger.info(f"Executing command: {command}")
 
         try:
-            import subprocess
             from time import time
 
             start_time = time()
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, **args)
+
+            # Use controller to run command
+            result = self.controller.run_command(command, **args)
             duration = time() - start_time
-            success = result.returncode == 0
-            output = result.stdout if success else result.stderr
+
+            # Extract output and success from controller result
+            success = result.success
+            output = result.message if success else result.message
+            error = None if success else result.message
 
             # Log command result
             if success:
                 logger.info(f"Command succeeded with output: {output[:200]}{'...' if len(output) > 200 else ''}")
             else:
-                logger.error(f"Command failed with error: {result.stderr}")
+                logger.error(f"Command failed with error: {error}")
 
             # Track command history
             if "command_history" not in state:
@@ -56,7 +73,7 @@ class TerminalTool:
             result_data = {
                 "success": success,
                 "output": output,
-                "error": result.stderr if not success else None,
+                "error": error,
                 "duration": duration,
             }
             state["context"]["last_action_result"] = result_data

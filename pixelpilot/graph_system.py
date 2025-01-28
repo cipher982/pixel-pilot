@@ -1,5 +1,3 @@
-import os
-import platform
 from datetime import datetime
 from typing import Any
 from typing import Dict
@@ -21,6 +19,7 @@ from pixelpilot.logger import setup_logger
 from pixelpilot.models import ActionResponse
 from pixelpilot.state_management import PathManager
 from pixelpilot.state_management import SharedState
+from pixelpilot.system_control_factory import SystemControllerFactory
 from pixelpilot.tools.terminal import TerminalTool
 from pixelpilot.visual_ops import VisualOperations
 
@@ -70,31 +69,36 @@ class DualPathGraph:
     RECURSION_LIMIT = 100
 
     def __init__(
-        self, window_info: Optional[Dict[str, Any]], start_terminal: bool = False, llm_provider: str = "openai"
+        self,
+        window_info: Optional[Dict[str, Any]],
+        start_terminal: bool = False,
+        llm_provider: str = "openai",
+        controller_mode: Optional[str] = None,
     ):
-        """Initialize the dual-path system."""
+        """Initialize the dual-path system.
+
+        Args:
+            window_info: Information about the target window for GUI operations
+            start_terminal: Whether to start in terminal mode
+            llm_provider: Which LLM provider to use
+            controller_mode: Which controller mode to use ("native", "docker", "scrapybara")
+        """
         self.path_manager = PathManager()
         self.metadata = MetadataTracker()
 
-        # Initialize system info with user-friendly OS name
-        os_type = platform.system().lower()
-        if os_type == "darwin":
-            os_type = "macos"
+        # Create controller based on mode
+        self.controller = SystemControllerFactory.create(mode=controller_mode)
+        self.controller.setup()
 
-        system_info = {
-            "os_type": os_type,
-            "os_version": platform.release(),
-            "shell": os.environ.get("SHELL", "unknown"),
-            "arch": platform.machine(),
-            "python_version": platform.python_version(),
-        }
+        # Initialize system info from controller
+        system_info = self.controller.get_system_info()
 
         # Initialize shared state with window info, system info and current directory
         self.path_manager.update_state(
             {
                 "window_info": window_info or {},
                 "context": {"system_info": system_info},
-                "current_directory": os.getcwd(),
+                "current_directory": self.controller.get_current_directory(),
             }
         )
         initial_path = "terminal" if start_terminal else "visual"
@@ -106,13 +110,18 @@ class DualPathGraph:
         self.summary_llm = self._init_summary_llm(llm_provider)
         self.metadata.models_used.add(self._get_model_name(llm_provider))
 
-        # Initialize tools
-        self.terminal_tool = TerminalTool()
+        # Initialize tools with controller
+        self.terminal_tool = TerminalTool(controller=self.controller)
         self.visual_ops = VisualOperations(window_info=window_info or {})
 
         # Build graphs
         self.terminal_graph = self._build_terminal_graph()
         self.visual_graph = self._build_visual_graph()
+
+    def cleanup(self):
+        """Clean up resources."""
+        if hasattr(self, "controller"):
+            self.controller.cleanup()
 
     def _get_model_name(self, provider: str) -> str:
         return "gpt-4o" if provider == "openai" else "local-model"
