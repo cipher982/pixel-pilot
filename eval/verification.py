@@ -1,19 +1,23 @@
 """Verification system for evaluating test results."""
 
-import os
 from abc import ABC
 from abc import abstractmethod
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Tuple
 
 from eval.datasets.types import VerificationRule
+from pixelpilot.logger import setup_logger
+from pixelpilot.system_control import SystemController
+
+logger = setup_logger(__name__)
 
 
 class VerificationResult:
     """Result of a verification check."""
 
-    def __init__(self, rule: VerificationRule, passed: bool, details: Dict):
+    def __init__(self, rule: "VerificationRule", passed: bool, details: Dict):
         self.rule = rule
         self.passed = passed
         self.details = details
@@ -26,31 +30,47 @@ class Verifier(ABC):
     """Base class for verification implementations."""
 
     @abstractmethod
-    def verify(self, rule: VerificationRule, state: Dict) -> VerificationResult:
+    def verify(self, rule: "VerificationRule", state: Dict) -> VerificationResult:
         """Verify if the rule passes given the current state."""
-        raise NotImplementedError("Subclasses must implement verify()")  # type: ignore
+        raise NotImplementedError("Subclasses must implement verify()")
 
 
 class FileVerifier(Verifier):
-    """Verifies file-related conditions."""
+    """Verifies file-related conditions using the system controller."""
 
-    def verify(self, rule: VerificationRule, state: Dict) -> VerificationResult:
-        if rule.type != "file":
+    def verify(self, rule: "VerificationRule", state: Dict) -> VerificationResult:
+        if rule.type not in ["file", "file_exists", "file_content"]:
             raise ValueError(f"FileVerifier cannot handle rule type: {rule.type}")
+
+        # Get controller from state
+        controller: Optional[SystemController] = state.get("controller")
+        if not controller:
+            return VerificationResult(
+                rule=rule, passed=False, details={"error": "No system controller available for verification"}
+            )
 
         path = rule.condition.get("path")
         if not path:
             return VerificationResult(rule=rule, passed=False, details={"error": "No path specified in condition"})
 
         try:
-            exists = os.path.exists(path)
+            # Check if file exists using ls command
+            result = controller.run_command(f"ls {path}")
+            exists = result.success
+
             if not exists:
                 return VerificationResult(rule=rule, passed=False, details={"error": f"File not found: {path}"})
 
-            if "content" in rule.condition:
-                with open(path, "r") as f:
-                    content = f.read()
-                expected = rule.condition["content"]
+            # If we need to check content
+            if "content" in rule.condition or "matches" in rule.condition:
+                result = controller.run_command(f"cat {path}")
+                if not result.success:
+                    return VerificationResult(
+                        rule=rule, passed=False, details={"error": f"Failed to read file: {result.message}"}
+                    )
+
+                content = result.message
+                expected = rule.condition.get("content") or rule.condition.get("matches")
                 passed = expected in content
                 return VerificationResult(rule=rule, passed=passed, details={"matches": passed, "path": path})
 
@@ -63,7 +83,7 @@ class FileVerifier(Verifier):
 class VisionVerifier(Verifier):
     """Uses AI to verify screenshots match expected state."""
 
-    def verify(self, rule: VerificationRule, state: Dict) -> VerificationResult:
+    def verify(self, rule: "VerificationRule", state: Dict) -> VerificationResult:
         if rule.type != "vision":
             raise ValueError(f"VisionVerifier cannot handle rule type: {rule.type}")
 
@@ -97,10 +117,12 @@ class VerificationEngine:
     def __init__(self):
         self.verifiers = {
             "file": FileVerifier(),
+            "file_exists": FileVerifier(),
+            "file_content": FileVerifier(),
             "vision": VisionVerifier(),
         }
 
-    def verify_all(self, rules: List[VerificationRule], state: Dict) -> Tuple[bool, List[VerificationResult]]:
+    def verify_all(self, rules: List["VerificationRule"], state: Dict) -> Tuple[bool, List[VerificationResult]]:
         """Verify all rules and determine overall success."""
         results = []
         success = True

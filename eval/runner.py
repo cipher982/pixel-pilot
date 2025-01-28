@@ -14,18 +14,22 @@ from eval.datasets import EvalCase
 from eval.datasets import EvalResult
 from eval.datasets.manager import DatasetManager
 from eval.verification import VerificationEngine
-from pixelpilot.gui_control_docker import DockerGUIController
-from pixelpilot.gui_control_native import NativeGUIController
+from pixelpilot.system_control import SystemController
+from pixelpilot.system_control_factory import SystemControllerFactory
 
 
 def collect_state(
-    output: Dict, result: subprocess.CompletedProcess, final_screenshot: Optional[Image.Image] = None
+    output: Dict,
+    result: subprocess.CompletedProcess,
+    final_screenshot: Optional[Image.Image] = None,
+    controller: Optional[SystemController] = None,
 ) -> Dict:
     """Collect state information from test execution."""
     state = {
         "terminal": {"output": result.stdout, "error": result.stderr, "return_code": result.returncode},
         "files": {},  # Will be populated by verifier
         "screen_state": {**output.get("screen_state", {}), "final_screenshot": final_screenshot},
+        "controller": controller,  # Add controller to state for verification
     }
     return state
 
@@ -91,20 +95,27 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Collect state for verification
-            state = collect_state(output, result)
+            # Create controller for verification
+            controller = SystemControllerFactory.create()
+            controller.setup()
 
-            # Run verifications
-            engine = VerificationEngine()
-            success, verification_results = engine.verify_all(test_case.verification_rules, state)
+            try:
+                # Collect state for verification
+                state = collect_state(output, result, controller=controller)
 
-            # Create result with verification details
-            return EvalResult(
-                test_case=test_case,
-                success=success,
-                verification_results=verification_results,
-                actions=output.get("actions", []),
-            )
+                # Run verifications
+                engine = VerificationEngine()
+                success, verification_results = engine.verify_all(test_case.verification_rules, state)
+
+                # Create result with verification details
+                return EvalResult(
+                    test_case=test_case,
+                    success=success,
+                    verification_results=verification_results,
+                    actions=output.get("actions", []),
+                )
+            finally:
+                controller.cleanup()
 
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
@@ -121,11 +132,21 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
     except subprocess.TimeoutExpired as e:
         print(f"Command timed out after {e.timeout} seconds")
         return EvalResult(
-            test_case=test_case, success=False, verification_results=[], actions=[], error=f"Timeout after {e.timeout}s"
+            test_case=test_case,
+            success=False,
+            verification_results=[],
+            actions=[],
+            error=f"Timeout after {e.timeout}s",
         )
     except Exception as e:
         print(f"Error details: {str(e)}")
-        return EvalResult(test_case=test_case, success=False, verification_results=[], actions=[], error=str(e))
+        return EvalResult(
+            test_case=test_case,
+            success=False,
+            verification_results=[],
+            actions=[],
+            error=str(e),
+        )
 
 
 def run_gui_test(test_case: EvalCase) -> EvalResult:
@@ -135,30 +156,33 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
         print(f"Test type: {test_case.test_type}")
         print(f"Test metadata: {test_case.metadata}")
 
+        # Add window info to task if available
+        window_info = test_case.metadata.get("window_info")
+        window_info_arg = f"--window-info '{json.dumps(window_info)}'" if window_info else ""
+
         print(f"Running command in directory: {os.getcwd()}")
         start_time = time.time()
 
-        # Similar to terminal test but with GUI flags
+        # Run the command through your agent
         result = subprocess.run(
             [
                 "uv",
                 "run",
                 "python",
-                "-u",
+                "-u",  # Unbuffered output
                 "-m",
                 "pixelpilot.main",
                 "--output-format",
                 "json",
                 "--gui-mode",
+                window_info_arg,
                 "--instructions",
                 test_case.task,
-                "--window-info",
-                json.dumps(test_case.metadata.get("window_info", {})),
             ],
             text=True,
             check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
-            capture_output=True,
+            capture_output=True,  # Capture output for debugging
             timeout=300,  # 5 min timeout
         )
 
@@ -192,11 +216,13 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Take final screenshot
-            print("Capturing final screenshot")
-            # Use appropriate controller based on environment
-            controller = DockerGUIController() if os.path.exists("/.dockerenv") else NativeGUIController()
+            # Create controller for verification
+            controller = SystemControllerFactory.create()
+            controller.setup()
+
             try:
+                # Take final screenshot
+                print("Capturing final screenshot")
                 screenshot, capture_result = controller.capture_screen()
                 if not capture_result.success:
                     print(f"Screenshot capture failed: {capture_result.message}")
@@ -206,23 +232,23 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
                     screenshot_path = "eval/artifacts/final_screenshot.png"
                     screenshot.save(screenshot_path)
                     print(f"Screenshot saved to {screenshot_path}")
+
+                # Collect state for verification
+                state = collect_state(output, result, screenshot, controller)
+
+                # Run verifications
+                engine = VerificationEngine()
+                success, verification_results = engine.verify_all(test_case.verification_rules, state)
+
+                # Create result with verification details
+                return EvalResult(
+                    test_case=test_case,
+                    success=success,
+                    verification_results=verification_results,
+                    actions=output.get("actions", []),
+                )
             finally:
                 controller.cleanup()
-
-            # Collect state for verification
-            state = collect_state(output, result, screenshot)
-
-            # Run verifications
-            engine = VerificationEngine()
-            success, verification_results = engine.verify_all(test_case.verification_rules, state)
-
-            # Create result with verification details
-            return EvalResult(
-                test_case=test_case,
-                success=success,
-                verification_results=verification_results,
-                actions=output.get("actions", []),
-            )
 
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
@@ -239,11 +265,21 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
     except subprocess.TimeoutExpired as e:
         print(f"Command timed out after {e.timeout} seconds")
         return EvalResult(
-            test_case=test_case, success=False, verification_results=[], actions=[], error=f"Timeout after {e.timeout}s"
+            test_case=test_case,
+            success=False,
+            verification_results=[],
+            actions=[],
+            error=f"Timeout after {e.timeout}s",
         )
     except Exception as e:
         print(f"Error details: {str(e)}")
-        return EvalResult(test_case=test_case, success=False, verification_results=[], actions=[], error=str(e))
+        return EvalResult(
+            test_case=test_case,
+            success=False,
+            verification_results=[],
+            actions=[],
+            error=str(e),
+        )
 
 
 def run_eval(test_case: EvalCase) -> EvalResult:
