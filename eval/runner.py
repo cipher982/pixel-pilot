@@ -1,5 +1,6 @@
 """Test runner for evaluation."""
 
+import argparse
 import json
 import os
 import subprocess
@@ -34,7 +35,7 @@ def collect_state(
     return state
 
 
-def run_terminal_test(test_case: EvalCase) -> EvalResult:
+def run_terminal_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
     """Run a terminal-based test case."""
     try:
         print(f"Starting terminal test: {test_case.task}")
@@ -95,8 +96,9 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Create controller for verification
-            controller = SystemControllerFactory.create()
+            # Create controller for verification using specified mode
+            print(f"Creating {mode or 'default'} controller for verification")
+            controller = SystemControllerFactory.create(mode=mode)
             controller.setup()
 
             try:
@@ -149,36 +151,39 @@ def run_terminal_test(test_case: EvalCase) -> EvalResult:
         )
 
 
-def run_gui_test(test_case: EvalCase) -> EvalResult:
+def run_gui_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
     """Run a GUI-based test case."""
     try:
         print(f"Starting GUI test: {test_case.task}")
         print(f"Test type: {test_case.test_type}")
         print(f"Test metadata: {test_case.metadata}")
 
-        # Add window info to task if available
+        # Build command with proper argument handling
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            "-u",  # Unbuffered output
+            "-m",
+            "pixelpilot.main",
+            "--output-format",
+            "json",
+            "--gui-mode",
+            "--instructions",
+            test_case.task,
+        ]
+
+        # Add window info if available
         window_info = test_case.metadata.get("window_info")
-        window_info_arg = f"--window-info '{json.dumps(window_info)}'" if window_info else ""
+        if window_info:
+            cmd.extend(["--window-info", json.dumps(window_info)])
 
         print(f"Running command in directory: {os.getcwd()}")
         start_time = time.time()
 
         # Run the command through your agent
         result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "python",
-                "-u",  # Unbuffered output
-                "-m",
-                "pixelpilot.main",
-                "--output-format",
-                "json",
-                "--gui-mode",
-                window_info_arg,
-                "--instructions",
-                test_case.task,
-            ],
+            cmd,
             text=True,
             check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
@@ -216,8 +221,9 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Create controller for verification
-            controller = SystemControllerFactory.create()
+            # Create controller for verification using specified mode
+            print(f"Creating {mode or 'default'} controller for verification")
+            controller = SystemControllerFactory.create(mode=mode)
             controller.setup()
 
             try:
@@ -282,9 +288,9 @@ def run_gui_test(test_case: EvalCase) -> EvalResult:
         )
 
 
-def run_eval(test_case: EvalCase) -> EvalResult:
+def run_eval(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
     """Run a single test case."""
-    return run_terminal_test(test_case) if test_case.test_type == "terminal" else run_gui_test(test_case)
+    return run_terminal_test(test_case, mode) if test_case.test_type == "terminal" else run_gui_test(test_case, mode)
 
 
 def save_results(results: List[EvalResult]) -> None:
@@ -305,6 +311,10 @@ def save_results(results: List[EvalResult]) -> None:
 
 def main():
     """Main entry point for eval runner."""
+    parser = argparse.ArgumentParser(description="Run evaluation tests")
+    parser.add_argument("--mode", choices=["native", "docker", "scrapybara"], help="Controller mode for verification")
+    args = parser.parse_args()
+
     print("\n🔍 Loading test cases...")
     manager = DatasetManager("eval/test_cases")
     test_cases = manager.load_test_cases()
@@ -327,7 +337,7 @@ def main():
 
     for i, test_case in enumerate(test_cases, 1):
         print(f"\n▶️  Test case {i}/{len(test_cases)}: {test_case.task}")
-        result = run_eval(test_case)
+        result = run_eval(test_case, args.mode)
         results.append(result)
 
         # Display result summary
