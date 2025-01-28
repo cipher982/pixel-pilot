@@ -133,8 +133,8 @@ else
     uv run python -u eval/runner.py
 fi
 
-# Keep container running if in eval mode
-if [[ "$MODE" == "eval" ]]; then
+# Keep container running if in eval mode with VNC wait
+if [[ "$MODE" == "eval" && "$VNC_WAIT" == "true" ]]; then
     echo "Evaluation complete. VNC server running on port 5900..."
     # Wait for remaining background processes
     wait $XVFB_PID $XFCE_PID $VNC_PID
