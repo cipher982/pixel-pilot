@@ -75,7 +75,7 @@ def run_terminal_test(
                 },
                 "files": {},  # Will be populated by verifier
                 "screen_state": {},
-                "controller": graph_system.controller,  # Use the controller from graph system
+                "controller": graph_system.controller,
             }
 
             # Run verifications before cleanup
@@ -178,6 +178,8 @@ def run_gui_test(
 
             # Take final screenshot
             print("Capturing final screenshot")
+            if controller is None:
+                raise ValueError("Controller is None")
             screenshot, capture_result = controller.capture_screen()
             if not capture_result.success:
                 print(f"Screenshot capture failed: {capture_result.message}")
