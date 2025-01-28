@@ -144,34 +144,31 @@ class DualPathGraph:
 
     def _decide_next_action(self, state: SharedState) -> SharedState:
         """Use LLM to decide next action."""
+        logger.debug(f"[DECIDE] Initial task_status: {state.get('task_status')}")
+
         messages = [
             SystemMessage(content=self._get_decision_system_prompt()),
             HumanMessage(content=self._create_decision_prompt(state)),
         ]
 
-        # Log the prompt for debugging
-        logger.debug(f"Sending prompt to LLM:\n{messages[1].content}")
-
         response: ActionResponse = self.decision_llm.invoke(messages)  # type: ignore
-
-        # Log the raw response
-        logger.debug(f"LLM Response: {response.model_dump_json(indent=2)}")
 
         # Update metadata
         self.metadata.add_confidence(response.confidence)
         if response.next_path != state["current_path"]:
             self.metadata.add_path_transition(response.next_path)
 
-        # Update state
+        # Update state with next action
         state["context"]["next_action"] = response.action.model_dump()
         state["context"]["next_path"] = response.next_path
         state["context"]["reasoning"] = response.reasoning
 
-        # Update task status if complete
         if response.is_task_complete:
             state["task_status"] = "completed"
             state["context"]["next_path"] = "end"
-            logger.info(f"Task marked as complete. Reason: {response.reasoning}")
+            logger.debug(f"[DECIDE] Setting task_status to completed. State now: {state.get('task_status')}")
+            logger.debug(f"[DECIDE] Full state keys: {state.keys()}")
+            logger.debug(f"[DECIDE] Next action: {state['context'].get('next_action')}")
 
         return state
 
@@ -271,25 +268,34 @@ Decide and respond with:
     def _execute_path(self, path: str) -> Dict[str, Any]:
         """Execute a single path and handle switching."""
         path = cast(Literal["terminal", "visual"], path)
-        logger.info(f"Executing path: {path}")
+        logger.debug(f"[EXEC] Starting path execution with task_status: {self.path_manager.state.get('task_status')}")
+        logger.debug(f"[EXEC] PathManager state id: {id(self.path_manager.state)}")
 
         graph = self.terminal_graph if path == "terminal" else self.visual_graph
         state = self.path_manager.get_state()
+        logger.debug(f"[EXEC] Got state from path_manager with task_status: {state.get('task_status')}")
+        logger.debug(f"[EXEC] Graph input state id: {id(state)}")
 
         try:
             final_state = graph.invoke(state, {"recursion_limit": self.RECURSION_LIMIT})
-            task_status = final_state.get("task_status")
+            logger.debug(f"[EXEC] Graph output state id: {id(final_state)}")
 
-            # Check for completion first
+            # Sync the new state back to path_manager
+            self.path_manager.update_state(final_state)
+            logger.debug(f"[EXEC] Updated PathManager with new state, id: {id(self.path_manager.state)}")
+
+            task_status = final_state.get("task_status")
+            logger.debug(f"[EXEC] After graph.invoke task_status: {task_status}")
+
             if task_status == "completed":
-                # Log final state for debugging
-                logger.debug(f"Final state on completion: {final_state}")
+                logger.debug("[EXEC] Task completed, preparing final state")
+                logger.debug(f"[EXEC] Final state task_status: {task_status}")
+                logger.debug(f"[EXEC] PathManager current task_status: {self.path_manager.state.get('task_status')}")
                 return {
                     "status": "completed",
                     "task_status": task_status,
                     "result": final_state.get("last_output", ""),
                     "context": final_state.get("context", {}),
-                    "summary": final_state.get("context", {}).get("summary"),  # Include summary in result
                 }
 
             # Handle path switching
@@ -312,20 +318,9 @@ Decide and respond with:
 
     def run(self, task_description: str) -> Dict[str, Any]:
         """Run the dual-path system, switching between paths as needed."""
-        # Get current context and update it with new task info
-        current_context = self.path_manager.state.get("context", {})
-        current_context.update(
-            {
-                "start_time": self.metadata.start_time,
-                "end_time": datetime.now(),
-                "models_used": list(self.metadata.models_used),
-                "path_transitions": self.metadata.path_transitions,
-                "confidence": self.metadata.confidence,
-                "token_usage": self.metadata.token_usage,
-            }
-        )
+        logger.debug("[RUN] Starting run with task_description: %s", task_description)
 
-        # Initialize state with task and metadata while preserving existing context
+        current_context = self.path_manager.state.get("context", {})
         self.path_manager.update_state(
             {
                 "task_description": task_description,
@@ -333,31 +328,32 @@ Decide and respond with:
                 "context": current_context,
             }
         )
-        logger.info(f"Starting execution with task: {task_description}")
+        logger.debug(f"[RUN] Initial state set with task_status: {self.path_manager.state.get('task_status')}")
+        logger.debug(f"[RUN] Initial PathManager state id: {id(self.path_manager.state)}")
 
         while True:
             result = self._execute_path(self.path_manager.state["current_path"])
-            logger.info(f"Path execution completed with status: {result.get('status')}")
+            logger.debug(
+                "[RUN] After execute_path - "
+                f"result status: {result.get('status')}, task_status: {result.get('task_status')}"
+            )
+            logger.debug(f"[RUN] PathManager state id after execute: {id(self.path_manager.state)}")
 
             if result.get("status") != "continue":
-                # Generate final summary before returning
                 final_state = self.path_manager.get_state()
+                logger.debug(f"[RUN] Final state before summary - task_status: {final_state.get('task_status')}")
+                logger.debug(f"[RUN] Final state id: {id(final_state)}")
+
                 summary_state = self.summarize_result(final_state)
-                result["summary"] = summary_state["context"]["summary"]
+                logger.debug(f"[RUN] After summary - task_status: {summary_state.get('task_status')}")
+                logger.debug(f"[RUN] Summary state id: {id(summary_state)}")
 
-                # Update final metadata
-                final_metadata = self.metadata.to_dict()
-                self.path_manager.update_state({"context": final_metadata})
-                result["context"] = final_metadata  # Ensure the result has the latest metadata
-
-                if result.get("task_status") == "completed":
-                    logger.info("Task completed successfully")
-                else:
-                    logger.warning("Task did not complete as expected")
                 return result
 
     def summarize_result(self, state: SharedState) -> SharedState:
         """Generate a final summary of the entire task execution."""
+        logger.debug(f"[SUMMARY] Starting summary with task_status: {state.get('task_status')}")
+        logger.debug(f"[SUMMARY] State keys available: {state.keys()}")
         command_history = state.get("command_history", [])
 
         # Get results from context history
@@ -383,10 +379,14 @@ Decide and respond with:
         messages = [
             SystemMessage(
                 content="""You are an AI assistant that summarizes task execution results.
-                Create a clear, concise summary of what was accomplished across all steps of the task.
-                Always include specific values from command outputs (like file sizes, counts, etc).
-                If any steps failed, clearly indicate which ones.
-                Focus on concrete results and measurements rather than just describing what was attempted."""
+                Create a clear, concrete summary based on the actual task status and command results.
+                
+                Guidelines:
+                - If task_status is 'completed': Describe what was accomplished with specific details
+                - If task_status is 'failed': Explain what failed and why
+                - Include command outputs and concrete values
+                - Base completion status ONLY on the task_status field
+                - Do not speculate about partial completion"""
             ),
             HumanMessage(
                 content=f"""
@@ -400,7 +400,7 @@ Decide and respond with:
         ]
 
         response = self.summary_llm.invoke(messages)
-        logger.info(f"Final summary generated: {response.content}")
+        logger.debug(f"Final summary generated: {response.content}")
         state["context"]["summary"] = response.content
 
         return state

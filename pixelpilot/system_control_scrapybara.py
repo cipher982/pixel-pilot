@@ -56,7 +56,7 @@ class ScrapybaraController(SystemController):
                 logger.info("No client found, creating new one...")
                 self.client = Scrapybara()
 
-            logger.info("Starting Ubuntu VM...")
+            logger.debug("Starting Ubuntu VM...")
             self.instance = self.client.start_ubuntu()
             logger.info("VM started successfully")
             time.sleep(2)  # Give VM time to fully initialize
@@ -68,7 +68,7 @@ class ScrapybaraController(SystemController):
             time.sleep(0.5)  # Brief pause between commands
 
             # Get system info
-            logger.info("Getting system info...")
+            logger.debug("Getting system info...")
             system_info = {
                 "os_type": "ubuntu",
                 "os_version": _safe_strip(self.instance.bash(command="lsb_release -rs")),
@@ -76,7 +76,7 @@ class ScrapybaraController(SystemController):
                 "arch": _safe_strip(self.instance.bash(command="uname -m")),
                 "shell": _safe_strip(self.instance.bash(command="echo $SHELL")),
             }
-            logger.info(f"System info: {system_info}")
+            logger.debug(f"System info: {system_info}")
 
             return OperationResult(success=True, message="Scrapybara VM started successfully", details=system_info)
         except Exception as e:
