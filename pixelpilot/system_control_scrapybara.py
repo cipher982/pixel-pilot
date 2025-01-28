@@ -263,3 +263,41 @@ class ScrapybaraController(SystemController):
                 logger.error(f"Failed to stop VM: {e}")
         self.instance = None
         self._current_directory = None
+
+    # File Operations
+    def file_exists(self, path: str) -> bool:
+        """Check if a file exists in the controlled environment."""
+        if not self.instance or not self._ensure_vm_ready():
+            return False
+
+        try:
+            result = self.instance.bash(command=f"test -f {path} && echo 'true' || echo 'false'")
+            return _safe_strip(result) == "true"
+        except Exception as e:
+            logger.error(f"Failed to check file existence: {e}")
+            return False
+
+    def read_file(self, path: str) -> str:
+        """Read contents of a file in the controlled environment."""
+        if not self.instance or not self._ensure_vm_ready():
+            return ""
+
+        try:
+            result = self.instance.bash(command=f"cat {path}")
+            return _safe_strip(result)
+        except Exception as e:
+            logger.error(f"Failed to read file: {e}")
+            return ""
+
+    def get_file_size(self, path: str) -> int:
+        """Get size of a file in bytes."""
+        if not self.instance or not self._ensure_vm_ready():
+            return 0
+
+        try:
+            result = self.instance.bash(command=f"stat -c %s {path}")
+            size_str = _safe_strip(result)
+            return int(size_str) if size_str.isdigit() else 0
+        except Exception as e:
+            logger.error(f"Failed to get file size: {e}")
+            return 0

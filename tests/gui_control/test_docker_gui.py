@@ -1,11 +1,11 @@
-"""Tests for Docker-based GUI controller."""
+"""Tests for Docker-based system controller."""
 
 import os
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_docker import DockerGUIController
+from pixelpilot.system_control_docker import DockerSystemController
 
 
 @pytest.fixture(scope="session")
@@ -30,7 +30,9 @@ def controller(x11_display):
     """Create and cleanup controller for each test."""
     controller = None
     try:
-        controller = DockerGUIController()
+        controller = DockerSystemController()
+        result = controller.setup()
+        assert result.success, f"Controller initialization failed: {result.message}"
         yield controller
     finally:
         if controller is not None:
@@ -72,11 +74,51 @@ def test_screen_capture(controller):
         pytest.fail(f"Could not access pixel data: {e}")
 
 
+def test_click(controller):
+    """Test mouse click."""
+    result = controller.click(x=0, y=0)
+    assert result.success
+    assert "Clicked at (0, 0)" in result.message
+
+
+def test_type_text(controller):
+    """Test typing (should return not implemented)."""
+    result = controller.type_text("test")
+    assert not result.success
+    assert "not yet implemented" in result.message
+
+
+def test_run_command(controller):
+    """Test running a simple command."""
+    result = controller.run_command("echo test")
+    assert result.success
+    assert "test" in result.message
+
+
+def test_file_operations(controller, tmp_path):
+    """Test file operations."""
+    # Create a test file
+    test_file = tmp_path / "test.txt"
+    test_content = "test content"
+    test_file.write_text(test_content)
+
+    # Test file exists
+    assert controller.file_exists(str(test_file))
+
+    # Test read file
+    assert controller.read_file(str(test_file)) == test_content
+
+    # Test file size
+    assert controller.get_file_size(str(test_file)) == len(test_content)
+
+
 def test_cleanup(x11_display):
     """Test cleanup allows creating new controllers."""
     # Create and cleanup several controllers in sequence
     # If cleanup fails, subsequent controller creation will fail
     for _ in range(3):
-        controller = DockerGUIController()
+        controller = DockerSystemController()
+        result = controller.setup()
+        assert result.success, f"Controller initialization failed: {result.message}"
         assert controller.display is not None  # Verify connection works
         controller.cleanup()

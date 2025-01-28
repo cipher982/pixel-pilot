@@ -1,11 +1,11 @@
-"""Tests for Docker GUI controller in evaluation environment."""
+"""Tests for Docker system controller in evaluation environment."""
 
 import os
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_docker import DockerGUIController
+from pixelpilot.system_control_docker import DockerSystemController
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -28,7 +28,9 @@ def controller(x11_display):
     """Create and cleanup controller for each test."""
     controller = None
     try:
-        controller = DockerGUIController()
+        controller = DockerSystemController()
+        result = controller.setup()
+        assert result.success, f"Controller initialization failed: {result.message}"
         yield controller
     finally:
         if controller is not None:
@@ -72,10 +74,13 @@ def test_screen_capture(controller):
 
 def test_cleanup(x11_display):
     """Test cleanup properly closes X11 connection."""
-    controller = DockerGUIController()
+    controller = DockerSystemController()
+    result = controller.setup()
+    assert result.success, f"Controller initialization failed: {result.message}"
     controller.cleanup()
 
     # Just verify we can create a new connection after cleanup
-    new_controller = DockerGUIController()
-    assert new_controller.display is not None
+    new_controller = DockerSystemController()
+    result = new_controller.setup()
+    assert result.success, f"Controller initialization failed: {result.message}"
     new_controller.cleanup()

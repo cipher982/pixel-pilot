@@ -33,6 +33,22 @@ class SystemController(ABC):
         """Initialize the system controller."""
         pass
 
+    # File Operations
+    @abstractmethod
+    def file_exists(self, path: str) -> bool:
+        """Check if a file exists in the controlled environment."""
+        pass
+
+    @abstractmethod
+    def read_file(self, path: str) -> str:
+        """Read contents of a file in the controlled environment."""
+        pass
+
+    @abstractmethod
+    def get_file_size(self, path: str) -> int:
+        """Get size of a file in bytes."""
+        pass
+
     # GUI Operations
     @abstractmethod
     def capture_screen(self) -> Tuple[Optional[Image.Image], OperationResult]:

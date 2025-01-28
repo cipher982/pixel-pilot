@@ -1,16 +1,14 @@
 """Visual operations for GUI interaction."""
 
-import os
 from typing import Any
 from typing import Dict
 from typing import Optional
 
-from pixelpilot.gui_control import GUIController
-from pixelpilot.gui_control_docker import DockerGUIController
-from pixelpilot.gui_control_native import NativeGUIController
 from pixelpilot.logger import setup_logger
 from pixelpilot.models import Action
 from pixelpilot.state_management import SharedState
+from pixelpilot.system_control import SystemController
+from pixelpilot.system_control_factory import SystemControllerFactory
 
 logger = setup_logger(__name__)
 
@@ -21,12 +19,8 @@ class VisualOperations:
     def __init__(self, window_info: Optional[Dict[str, Any]] = None):
         """Initialize visual operations."""
         self.window_info = window_info or {}
-
-        # Use appropriate controller based on environment
-        if os.path.exists("/.dockerenv"):
-            self.controller: GUIController = DockerGUIController()
-        else:
-            self.controller = NativeGUIController()
+        self.controller: SystemController = SystemControllerFactory.create()
+        self.controller.setup()
 
     def execute_visual_action(self, state: SharedState) -> SharedState:
         """Execute a visual action."""

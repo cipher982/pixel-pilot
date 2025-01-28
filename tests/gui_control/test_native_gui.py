@@ -1,9 +1,9 @@
-"""Tests for native GUI controller."""
+"""Tests for native system controller."""
 
 import pytest
 from PIL import Image
 
-from pixelpilot.gui_control_native import NativeGUIController
+from pixelpilot.system_control_native import NativeSystemController
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -16,7 +16,13 @@ def check_environment(is_host):
 @pytest.fixture
 def controller():
     """Create controller for testing."""
-    return NativeGUIController()
+    controller = NativeSystemController()
+    try:
+        result = controller.setup()
+        assert result.success, f"Controller initialization failed: {result.message}"
+        yield controller
+    finally:
+        controller.cleanup()
 
 
 def test_screen_capture(controller):
@@ -60,3 +66,27 @@ def test_type_text(controller):
     result = controller.type_text("test")
     assert result.success
     assert "Typed text: test" in result.message
+
+
+def test_run_command(controller):
+    """Test running a simple command."""
+    result = controller.run_command("echo test")
+    assert result.success
+    assert "test" in result.message
+
+
+def test_file_operations(controller, tmp_path):
+    """Test file operations."""
+    # Create a test file
+    test_file = tmp_path / "test.txt"
+    test_content = "test content"
+    test_file.write_text(test_content)
+
+    # Test file exists
+    assert controller.file_exists(str(test_file))
+
+    # Test read file
+    assert controller.read_file(str(test_file)) == test_content
+
+    # Test file size
+    assert controller.get_file_size(str(test_file)) == len(test_content)
