@@ -23,6 +23,12 @@ class TerminalTool:
         """
         self.controller = controller or SystemControllerFactory.create(mode="native")
 
+    def _sync_directory_state(self, state: SharedState) -> None:
+        """Sync working directory from controller to state."""
+        current_dir = self.controller.get_current_directory()
+        state["current_directory"] = current_dir
+        logger.debug(f"Working directory synced: {current_dir}")
+
     def execute_command(self, state: SharedState) -> SharedState:
         """Execute a terminal command."""
         action = Action(**state["context"]["next_action"])
@@ -47,10 +53,13 @@ class TerminalTool:
             result = self.controller.run_command(command, **args)
             duration = time() - start_time
 
+            # Always sync directory state after command
+            self._sync_directory_state(state)
+
             # Extract output and success from controller result
             success = result.success
-            output = result.message if success else result.message
-            error = None if success else result.message
+            output = result.details.get("output", "") if result.success else result.message
+            error = result.message if not result.success else None
 
             # Log command result
             if success:

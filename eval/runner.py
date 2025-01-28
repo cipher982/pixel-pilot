@@ -35,7 +35,9 @@ def collect_state(
     return state
 
 
-def run_terminal_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
+def run_terminal_test(
+    test_case: EvalCase, mode: Optional[str] = None, controller: Optional[SystemController] = None
+) -> EvalResult:
     """Run a terminal-based test case."""
     try:
         print(f"Starting terminal test: {test_case.task}")
@@ -58,7 +60,8 @@ def run_terminal_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalRe
                 "json",
                 "--instructions",
                 test_case.task,
-            ],
+            ]
+            + (["--mode", mode] if mode else []),  # Add mode if specified
             text=True,
             check=False,  # Don't raise on non-zero exit
             env=os.environ.copy(),
@@ -96,28 +99,20 @@ def run_terminal_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalRe
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Create controller for verification using specified mode
-            print(f"Creating {mode or 'default'} controller for verification")
-            controller = SystemControllerFactory.create(mode=mode)
-            controller.setup()
+            # Collect state for verification
+            state = collect_state(output, result, controller=controller)
 
-            try:
-                # Collect state for verification
-                state = collect_state(output, result, controller=controller)
+            # Run verifications
+            engine = VerificationEngine()
+            success, verification_results = engine.verify_all(test_case.verification_rules, state)
 
-                # Run verifications
-                engine = VerificationEngine()
-                success, verification_results = engine.verify_all(test_case.verification_rules, state)
-
-                # Create result with verification details
-                return EvalResult(
-                    test_case=test_case,
-                    success=success,
-                    verification_results=verification_results,
-                    actions=output.get("actions", []),
-                )
-            finally:
-                controller.cleanup()
+            # Create result with verification details
+            return EvalResult(
+                test_case=test_case,
+                success=success,
+                verification_results=verification_results,
+                actions=output.get("actions", []),
+            )
 
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
@@ -151,7 +146,9 @@ def run_terminal_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalRe
         )
 
 
-def run_gui_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
+def run_gui_test(
+    test_case: EvalCase, mode: Optional[str] = None, controller: Optional[SystemController] = None
+) -> EvalResult:
     """Run a GUI-based test case."""
     try:
         print(f"Starting GUI test: {test_case.task}")
@@ -171,7 +168,7 @@ def run_gui_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
             "--gui-mode",
             "--instructions",
             test_case.task,
-        ]
+        ] + (["--mode", mode] if mode else [])  # Add mode if specified
 
         # Add window info if available
         window_info = test_case.metadata.get("window_info")
@@ -221,40 +218,32 @@ def run_gui_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
             with open("eval/artifacts/eval_result.json") as f:
                 output = json.load(f)
 
-            # Create controller for verification using specified mode
-            print(f"Creating {mode or 'default'} controller for verification")
-            controller = SystemControllerFactory.create(mode=mode)
-            controller.setup()
+            # Take final screenshot
+            print("Capturing final screenshot")
+            screenshot, capture_result = controller.capture_screen()
+            if not capture_result.success:
+                print(f"Screenshot capture failed: {capture_result.message}")
+                screenshot = None
+            elif screenshot is not None:  # Only save if we have a screenshot
+                # Save screenshot to artifacts
+                screenshot_path = "eval/artifacts/final_screenshot.png"
+                screenshot.save(screenshot_path)
+                print(f"Screenshot saved to {screenshot_path}")
 
-            try:
-                # Take final screenshot
-                print("Capturing final screenshot")
-                screenshot, capture_result = controller.capture_screen()
-                if not capture_result.success:
-                    print(f"Screenshot capture failed: {capture_result.message}")
-                    screenshot = None
-                elif screenshot is not None:  # Only save if we have a screenshot
-                    # Save screenshot to artifacts
-                    screenshot_path = "eval/artifacts/final_screenshot.png"
-                    screenshot.save(screenshot_path)
-                    print(f"Screenshot saved to {screenshot_path}")
+            # Collect state for verification
+            state = collect_state(output, result, screenshot, controller)
 
-                # Collect state for verification
-                state = collect_state(output, result, screenshot, controller)
+            # Run verifications
+            engine = VerificationEngine()
+            success, verification_results = engine.verify_all(test_case.verification_rules, state)
 
-                # Run verifications
-                engine = VerificationEngine()
-                success, verification_results = engine.verify_all(test_case.verification_rules, state)
-
-                # Create result with verification details
-                return EvalResult(
-                    test_case=test_case,
-                    success=success,
-                    verification_results=verification_results,
-                    actions=output.get("actions", []),
-                )
-            finally:
-                controller.cleanup()
+            # Create result with verification details
+            return EvalResult(
+                test_case=test_case,
+                success=success,
+                verification_results=verification_results,
+                actions=output.get("actions", []),
+            )
 
         except FileNotFoundError:
             print("eval_result.json not found - checking current directory")
@@ -288,9 +277,15 @@ def run_gui_test(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
         )
 
 
-def run_eval(test_case: EvalCase, mode: Optional[str] = None) -> EvalResult:
+def run_eval(
+    test_case: EvalCase, mode: Optional[str] = None, controller: Optional[SystemController] = None
+) -> EvalResult:
     """Run a single test case."""
-    return run_terminal_test(test_case, mode) if test_case.test_type == "terminal" else run_gui_test(test_case, mode)
+    return (
+        run_terminal_test(test_case, mode, controller)
+        if test_case.test_type == "terminal"
+        else run_gui_test(test_case, mode, controller)
+    )
 
 
 def save_results(results: List[EvalResult]) -> None:
@@ -332,26 +327,43 @@ def main():
     for i, test_case in enumerate(test_cases, 1):
         print(f"  {i}. [{test_case.test_type}] {test_case.task}")
 
-    print("\nRunning tests...")
-    results = []
+    # Create a single controller for the entire session
+    controller = None
+    try:
+        if args.mode == "scrapybara":
+            print("\n🖥️  Setting up Scrapybara VM for test session...")
+            controller = SystemControllerFactory.create(mode=args.mode)
+            controller.setup()
+            print("VM ready")
 
-    for i, test_case in enumerate(test_cases, 1):
-        print(f"\n▶️  Test case {i}/{len(test_cases)}: {test_case.task}")
-        result = run_eval(test_case, args.mode)
-        results.append(result)
+        print("\nRunning tests...")
+        results = []
 
-        # Display result summary
-        verification_summary = [f"{'✓' if v.passed else '✗'} {v.rule.description}" for v in result.verification_results]
-        print(f"{'✅' if result.success else '❌'} Result:")
-        if verification_summary:
-            print("\n".join(f"  {line}" for line in verification_summary))
-        if result.error:
-            print(f"  Error: {result.error}")
+        for i, test_case in enumerate(test_cases, 1):
+            print(f"\n▶️  Test case {i}/{len(test_cases)}: {test_case.task}")
+            result = run_eval(test_case, args.mode, controller)
+            results.append(result)
 
-    save_results(results)
-    print("\n📊 Results Summary:")
-    passed = sum(1 for r in results if r.success)
-    print(f"Passed: {passed}/{len(results)} ({passed/len(results)*100:.1f}%)")
+            # Display result summary
+            verification_summary = [
+                f"{'✓' if v.passed else '✗'} {v.rule.description}" for v in result.verification_results
+            ]
+            print(f"{'✅' if result.success else '❌'} Result:")
+            if verification_summary:
+                print("\n".join(f"  {line}" for line in verification_summary))
+            if result.error:
+                print(f"  Error: {result.error}")
+
+        save_results(results)
+        print("\n📊 Results Summary:")
+        passed = sum(1 for r in results if r.success)
+        print(f"Passed: {passed}/{len(results)} ({passed/len(results)*100:.1f}%)")
+
+    finally:
+        if controller:
+            print("\n🧹 Cleaning up VM...")
+            controller.cleanup()
+            print("VM stopped")
 
 
 if __name__ == "__main__":

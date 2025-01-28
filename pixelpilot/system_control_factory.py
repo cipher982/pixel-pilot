@@ -87,24 +87,15 @@ class SystemControllerFactory:
     """Factory for creating system controllers."""
 
     @staticmethod
-    def create(mode: Optional[str] = None, api_key: Optional[str] = None) -> SystemController:
-        """Create a system controller.
-
-        Args:
-            mode: The controller mode to use. If None, will be determined from environment.
-                 Valid values: "scrapybara", "docker", "native"
-            api_key: Optional API key for Scrapybara
-
-        Returns:
-            An initialized SystemController instance
-        """
+    def create(mode: Optional[str] = None) -> SystemController:
+        """Create a system controller."""
         # If no mode specified, check environment
         if not mode:
             mode = os.environ.get("PIXELPILOT_MODE", "native")
 
         # Create appropriate controller
         if mode == "scrapybara":
-            return ScrapybaraController(api_key=api_key)
+            return ScrapybaraController()
         elif mode == "docker":
             from pixelpilot.gui_control_docker import DockerGUIController
 
