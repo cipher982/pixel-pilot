@@ -166,3 +166,4 @@ scratch/
 weights/
 .vscode/
 eval/artifacts/tests/data/screenshot*.png
+eval/artifacts/*.json
