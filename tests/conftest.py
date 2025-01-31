@@ -4,16 +4,18 @@ import logging
 from pathlib import Path
 
 import pytest
-from PIL import Image
-from PIL import ImageDraw
 from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
-def page_screenshot():
+def page_screenshot(tmp_path_factory):
     """Get screenshot and element coordinates from test page."""
+    # Create a temporary directory for test artifacts
+    tmp_dir = tmp_path_factory.mktemp("screenshots")
+    screenshot_path = tmp_dir / "test_screenshot.png"
+
     with sync_playwright() as p:
         # Launch browser with fixed viewport for consistent coordinates
         browser = p.chromium.launch()
@@ -33,16 +35,7 @@ def page_screenshot():
         logger.info("Button bounding box: %s", box)
 
         # Take screenshot
-        screenshot_path = Path("tests/data/screenshot.png")
         page.screenshot(path=str(screenshot_path))
-
-        # Debug: Draw rectangle around button in a debug copy
-        debug_screenshot_path = Path("tests/data/screenshot_debug.png")
-        img = Image.open(screenshot_path)
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]], outline="red", width=2)
-        img.save(debug_screenshot_path)
-        logger.info("Saved debug screenshot with button outline to: %s", debug_screenshot_path)
 
         # Clean up
         browser.close()

@@ -165,4 +165,4 @@ scratch/
 .DS_Store
 weights/
 .vscode/
-eval/artifacts/
+eval/artifacts/tests/data/screenshot*.png
