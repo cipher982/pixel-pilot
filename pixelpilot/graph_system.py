@@ -420,6 +420,15 @@ Decide and respond with:
            - For Linux: Use Linux commands (e.g., 'stat -c %s' for file size)
            - For Windows: Use Windows commands (e.g., 'dir' instead of 'ls')
         
+        For visual operations:
+        1. Always start with a screen capture to analyze the current state
+        2. Break down high-level tasks into concrete click/type operations:
+           - clicking: Use
+           {'type': 'visual', 'command': 'click', 'args': {'operation': 'click', 'coordinates': {'x': X, 'y': Y}}}
+           - typing: Use
+           {'type': 'visual', 'command': 'type', 'args': {'operation': 'type', 'text': 'text to type'}}
+        3. Use coordinates from the screen capture to determine where to click
+        
         When the task is complete:
         1. Set is_task_complete=true
         2. Set next_path="end"
